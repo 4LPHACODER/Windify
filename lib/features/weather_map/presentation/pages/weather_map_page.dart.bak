@@ -1,0 +1,545 @@
+import 'dart:math';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../states/weather_map_state.dart';
+import '../../../../features/weather_map/domain/entities/weather_layer.dart';
+import '../controllers/weather_map_controller.dart';
+import 'widgets/feature_nav_bar.dart';
+import 'widgets/floating_control_button.dart';
+
+class WeatherMapPage extends ConsumerWidget {
+  const WeatherMapPage({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(weatherMapNotifierProvider);
+    final notifier = ref.read(weatherMapNotifierProvider.notifier);
+
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFF0D1B2A),
+                Color(0xFF0D1B2A),
+                Colors.transparent,
+              ],
+              stops: [0.0, 0.5, 1.0],
+            ),
+          ),
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Windify',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              state.selectedLayer.displayName,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.white.withOpacity(0.7),
+                fontSize: 12,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.search, color: Colors.white, size: 22),
+            onPressed: () {},
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            icon: const Icon(Icons.settings, color: Colors.white, size: 22),
+            onPressed: () {},
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: Stack(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 500),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: _getBackgroundColors(state.selectedLayer),
+                stops: const [0.0, 0.5, 0.8, 1.0],
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: CustomPaint(
+              painter: _AtmospherePainter(layer: state.selectedLayer),
+            ),
+          ),
+          SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                const SizedBox(height: 16),
+                _buildMapContainer(context, state),
+                _buildInfoCards(context, state),
+                const Spacer(),
+              ],
+            ),
+          ),
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 36,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                width: 4,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(2),
+                  boxShadow: BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 8,
+                    spreadRadius: 1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: FeatureNavBar(
+        selectedLayer: state.selectedLayer,
+        onLayerSelected: (layer) => notifier.selectLayer(layer),
+        onSavedLocations: () {},
+      ),
+    );
+  }
+
+  List<Color> _getBackgroundColors(WeatherLayer layer) {
+    switch (layer) {
+      case WeatherLayer.radar:
+        return [
+          const Color(0xFF0A1628),
+          const Color(0xFF0D1B2A),
+          const Color(0xFF1B263B),
+          const Color(0xFF415A77),
+        ];
+      case WeatherLayer.wind:
+        return [
+          const Color(0xFF0A1A1A),
+          const Color(0xFF0D2A2A),
+          const Color(0xFF1A3A3A),
+          const Color(0xFF2A4A4A),
+        ];
+      case WeatherLayer.wave:
+        return [
+          const Color(0xFF0A1A2A),
+          const Color(0xFF0D263A),
+          const Color(0xFF1A364A),
+          const Color(0xFF4A6A8A),
+        ];
+    }
+  }
+
+  Widget _buildMapContainer(BuildContext context, WeatherMapState state) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Stack(
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.4),
+                    blurRadius: 32,
+                    spreadRadius: 4,
+                    offset: const Offset(0, 16),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: _buildMapContent(context, state),
+              ),
+            ),
+            Positioned(
+              right: 24,
+              bottom: 24,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FloatingControlButton(
+                    icon: Icons.add,
+                    label: 'Zoom in',
+                    onPressed: () {},
+                  ),
+                  const SizedBox(height: 12),
+                  FloatingControlButton(
+                    icon: Icons.remove,
+                    label: 'Zoom out',
+                    onPressed: () {},
+                  ),
+                  const SizedBox(height: 12),
+                  FloatingControlButton(
+                    icon: Icons.my_location,
+                    label: 'Reset view',
+                    onPressed: () {},
+                  ),
+                  const SizedBox(height: 12),
+                  FloatingControlButton(
+                    icon: Icons.refresh,
+                    label: 'Refresh data',
+                    onPressed: () => notifier.loadInitialData(),
+                  ),
+                ],
+              ),
+            ),
+            Positioned(
+              left: 20,
+              bottom: 20,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildLegendIndicator(state.selectedLayer),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Live Data',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (state.isLoading)
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: const Center(
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+              ),
+            if (state.error != null)
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.error, color: Colors.red, size: 32),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Error loading data',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyLarge?.copyWith(color: Colors.white),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: () => notifier.loadInitialData(),
+                      child: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMapContent(BuildContext context, WeatherMapState state) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF1A2F3A), Color(0xFF2A3F4A), Color(0xFF0A1F2A)],
+            ),
+          ),
+          child: CustomPaint(
+            painter: _RadarPainter(layer: state.selectedLayer),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _getLayerIcon(state.selectedLayer),
+                    size: 48,
+                    color: Colors.white.withOpacity(0.3),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    state.currentMap?.title ?? state.selectedLayer.displayName,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: Colors.white.withOpacity(0.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: Opacity(
+            opacity: 0.03,
+            child: Image.asset(
+              'assets/grid_pattern.png',
+              package: 'flutter_map',
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => const SizedBox(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInfoCards(BuildContext context, WeatherMapState state) {
+    if (state.isLoading || state.currentMap == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _getLayerColor(
+                      state.selectedLayer!,
+                    ).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    _getLayerIcon(state.selectedLayer!),
+                    size: 22,
+                    color: _getLayerColor(state.selectedLayer!),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        state.currentMap!.title,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        state.currentMap!.description,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            const Divider(height: 1),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _InfoCard(
+                    label: 'Last Update',
+                    value: _formatTime(state.currentMap!.updatedAt),
+                    icon: Icons.update,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _InfoCard(
+                    label: 'Coverage',
+                    value: 'Worldwide',
+                    icon: Icons.public,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatTime(DateTime time) {
+    final diff = DateTime.now().difference(time);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+
+  Widget _buildLegendIndicator(WeatherLayer layer) {
+    return Container(
+      width: 12,
+      height: 12,
+      decoration: BoxDecoration(
+        color: _getLayerColor(layer),
+        shape: BoxShape.circle,
+      ),
+    );
+  }
+
+  Color _getLayerColor(WeatherLayer layer) {
+    switch (layer) {
+      case WeatherLayer.radar:
+        return const Color(0xFF00D4FF);
+      case WeatherLayer.wind:
+        return const Color(0xFF00E676);
+      case WeatherLayer.wave:
+        return const Color(0xFF29B6F6);
+    }
+  }
+
+  IconData _getLayerIcon(WeatherLayer layer) {
+    switch (layer) {
+      case WeatherLayer.radar:
+        return Icons.radar;
+      case WeatherLayer.wind:
+        return Icons.air;
+      case WeatherLayer.wave:
+        return Icons.waves;
+    }
+  }
+}
+
+class _AtmospherePainter extends CustomPainter {
+  final WeatherLayer layer;
+
+  _AtmospherePainter({required this.layer});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..style = PaintingStyle.fill;
+    final random = Random(42);
+
+    for (var i = 0; i < 30; i++) {
+      final x = random.nextDouble() * size.width;
+      final y = random.nextDouble() * size.height;
+      final radius = random.nextDouble() * 2 + 0.5;
+      final opacity = random.nextDouble() * 0.1 + 0.02;
+
+      paint.color = Colors.white.withOpacity(opacity);
+      canvas.drawCircle(Offset(x, y), radius, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class _RadarPainter extends CustomPainter {
+  final WeatherLayer layer;
+
+  _RadarPainter({required this.layer});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    final colors = [
+      const Color(0xFF00D4FF),
+      const Color(0xFF00B8D4),
+      const Color(0xFF00838F),
+    ];
+
+    for (var i = 0; i < 4; i++) {
+      final radius = (size.width / 2) * (i + 1) / 4;
+      paint.color = colors[i].withOpacity(0.3 - i * 0.05);
+      canvas.drawCircle(center, radius, paint);
+    }
+
+    final sweepGradient = SweepGradient(
+      center: Alignment.center,
+      startAngle: 0,
+      endAngle: 3.14 * 1.5,
+      colors: [
+        Colors.transparent,
+        Colors.white.withOpacity(0.1),
+        Colors.white.withOpacity(0.05),
+        Colors.transparent,
+      ],
+    );
+
+    canvas.drawCircle(
+      center,
+      size.width / 2 - 2,
+      Paint()
+        ..shader = sweepGradient.createShader(
+          Rect.fromCircle(center: center, radius: size.width / 2),
+        )
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
