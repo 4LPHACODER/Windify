@@ -8,6 +8,6 @@ class GetWeatherLayersUsecase {
   GetWeatherLayersUsecase(this.repository);
 
   Future<List<ForecastMap>> call(LoadWeatherLayersRequest request) async {
-    return await repository.getForecastMaps();
+    return await repository.getWeatherForLocation(request.location);
   }
 }

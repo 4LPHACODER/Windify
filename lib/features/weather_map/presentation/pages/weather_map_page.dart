@@ -4,6 +4,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../domain/entities/weather_layer.dart';
+import '../../domain/entities/location.dart';
 import '../controllers/weather_map_controller.dart';
 import '../states/weather_map_state.dart';
 import 'package:windify_v2/core/config/env_config.dart';
@@ -17,12 +18,13 @@ class WeatherMapPage extends ConsumerStatefulWidget {
 
 class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
   final MapController _mapController = MapController();
-  static const LatLng _defaultCenter = LatLng(9.0780, 126.1986);
   static const double _defaultZoom = 5.0;
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   void dispose() {
     _mapController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -36,8 +38,8 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     _mapController.move(camera.center, camera.zoom - 1);
   }
 
-  void _resetView() {
-    _mapController.move(_defaultCenter, _defaultZoom);
+  void _onMapTapped(LatLng point) {
+    ref.read(weatherMapNotifierProvider.notifier).pinLocation(point);
   }
 
   @override
@@ -93,7 +95,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
                   ),
                 ),
                 Text(
-                  state.selectedLayer.displayName,
+                  state.locationName ?? state.selectedLayer.displayName,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Colors.white.withOpacity(0.75),
                     fontSize: 11,
@@ -107,7 +109,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.search, color: Colors.white, size: 22),
-            onPressed: () {},
+            onPressed: () => _showSearchDialog(context, notifier),
           ),
           IconButton(
             icon: const Icon(Icons.settings, color: Colors.white, size: 22),
@@ -129,9 +131,9 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.black.withOpacity(0.5),
+                      Colors.black.withOpacity(0.4),
                       Colors.transparent,
-                      Colors.black.withOpacity(0.3),
+                      Colors.black.withOpacity(0.2),
                     ],
                     stops: const [0.0, 0.3, 0.7],
                   ),
@@ -162,6 +164,14 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             bottom: MediaQuery.of(context).padding.bottom + 140,
             child: _buildMapControls(notifier),
           ),
+          // Current location button (top-right-ish)
+          Positioned(
+            right: 16,
+            top: kToolbarHeight + 16,
+            child: _CurrentLocationButton(
+              onPressed: () => notifier.fetchCurrentLocation(),
+            ),
+          ),
           // Loading overlay
           if (state.isLoading)
             Container(
@@ -178,6 +188,11 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
         ],
       ),
       bottomNavigationBar: _buildBottomNav(context, state, notifier),
+      // AI recommendation FAB
+      floatingActionButton: _AIFab(
+        onPressed: () => _showAIRecommendationSheet(context, state),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 
@@ -186,33 +201,83 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     if (mapboxToken == null || mapboxToken.isEmpty) {
       return _buildMapFallback(state);
     }
+
     return FlutterMap(
       mapController: _mapController,
       options: MapOptions(
-        initialCenter: _defaultCenter,
+        initialCenter: state.selectedLocation,
         initialZoom: _defaultZoom,
         minZoom: 2,
-        maxZoom: 12,
+        maxZoom: 18,
         interactionOptions: const InteractionOptions(
           flags: InteractiveFlag.all,
         ),
+        onTap: (_, point) => _onMapTapped(point),
       ),
       children: [
         TileLayer(
           urlTemplate:
-              'https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/{z}/{x}/{y}?access_token={accessToken}',
+              'https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/{z}/{x}/{y}?access_token={accessToken}',
           additionalOptions: {'accessToken': mapboxToken},
           userAgentPackageName: 'com.windify.app',
         ),
-        Opacity(
-          opacity: 0.25,
-          child: TileLayer(
-            urlTemplate:
-                'https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/{z}/{x}/{y}?access_token={accessToken}',
-            additionalOptions: {'accessToken': mapboxToken},
-            userAgentPackageName: 'com.windify.app',
+        // Weather overlay - subtle colored tint
+        if (state.selectedLayer == WeatherLayer.radar)
+          Opacity(
+            opacity: 0.12,
+            child: TileLayer(
+              urlTemplate:
+                  'https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/{z}/{x}/{y}?access_token={accessToken}',
+              additionalOptions: {'accessToken': mapboxToken},
+              userAgentPackageName: 'com.windify.app',
+            ),
           ),
-        ),
+        // Current location marker
+        if (state.locationName == 'Current Location')
+          MarkerLayer(
+            markers: [
+              Marker(
+                width: 24,
+                height: 24,
+                point: state.selectedLocation,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.9),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.blue.withOpacity(0.5),
+                        blurRadius: 8,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.my_location,
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ],
+          )
+        // Pinned location marker
+        else if (state.locationName == 'Pinned Location')
+          MarkerLayer(
+            markers: [
+              Marker(
+                width: 28,
+                height: 40,
+                point: state.selectedLocation,
+                child: const Icon(
+                  Icons.location_on,
+                  color: Colors.red,
+                  size: 40,
+                ),
+              ),
+            ],
+          ),
       ],
     );
   }
@@ -314,14 +379,14 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
         const SizedBox(height: 10),
         _MapControlButton(
           icon: Icons.my_location,
-          tooltip: 'Reset view',
-          onPressed: _resetView,
+          tooltip: 'My location',
+          onPressed: () => notifier.fetchCurrentLocation(),
         ),
         const SizedBox(height: 10),
         _MapControlButton(
           icon: Icons.refresh,
           tooltip: 'Refresh',
-          onPressed: notifier.loadInitialData,
+          onPressed: notifier.refresh,
         ),
       ],
     );
@@ -329,6 +394,10 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
 
   Widget _buildInfoCard(BuildContext context, WeatherMapState state) {
     if (state.currentMap == null) return const SizedBox.shrink();
+
+    final weather = state.currentMap!.currentWeather;
+    final wind = state.currentMap!.windInfo;
+    final wave = state.currentMap!.waveInfo;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -348,6 +417,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Header row
             Row(
               children: [
                 Container(
@@ -399,6 +469,117 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             const SizedBox(height: 18),
             Container(height: 1, color: Colors.grey.shade200),
             const SizedBox(height: 16),
+            // Data cards (dynamic per layer)
+            if (state.selectedLayer == WeatherLayer.radar &&
+                weather != null) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: _DataCard(
+                      icon: Icons.water_drop,
+                      label: 'Precipitation',
+                      value: '${weather.precipitation ?? 0} mm',
+                      color: Colors.blue,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _DataCard(
+                      icon: Icons.thermostat,
+                      label: 'Temperature',
+                      value: '${weather.temperature.toStringAsFixed(1)}°C',
+                      color: Colors.orange,
+                    ),
+                  ),
+                ],
+              ),
+            ] else if (state.selectedLayer == WeatherLayer.wind &&
+                wind != null) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: _DataCard(
+                      icon: Icons.air,
+                      label: 'Wind Speed',
+                      value: '${wind.speed.toStringAsFixed(1)} m/s',
+                      color: Colors.green,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _DataCard(
+                      icon: Icons.explore,
+                      label: 'Direction',
+                      value: wind.directionName,
+                      color: Colors.purple,
+                    ),
+                  ),
+                ],
+              ),
+              if (wind.gust != null) ...[
+                const SizedBox(height: 12),
+                _DataCard(
+                  icon: Icons.bolt,
+                  label: 'Wind Gust',
+                  value: '${wind.gust!.toStringAsFixed(1)} m/s',
+                  color: Colors.orange,
+                  fullWidth: true,
+                ),
+              ],
+            ] else if (state.selectedLayer == WeatherLayer.wave &&
+                wave != null) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: _DataCard(
+                      icon: Icons.waves,
+                      label: 'Wave Height',
+                      value:
+                          '${wave.swellHeight?.toStringAsFixed(1) ?? "N/A"} m',
+                      color: Colors.cyan,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _DataCard(
+                      icon: Icons.info,
+                      label: 'Condition',
+                      value: wave.description,
+                      color: Colors.teal,
+                    ),
+                  ),
+                ],
+              ),
+            ] else ...[
+              // Fallback basic info
+              Row(
+                children: [
+                  Expanded(
+                    child: _DataCard(
+                      icon: Icons.thermostat,
+                      label: 'Temperature',
+                      value: weather != null
+                          ? '${weather.temperature.toStringAsFixed(1)}°C'
+                          : 'N/A',
+                      color: Colors.orange,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _DataCard(
+                      icon: Icons.water_drop,
+                      label: 'Humidity',
+                      value: weather != null ? '${weather.humidity}%' : 'N/A',
+                      color: Colors.blue,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 12),
+            Container(height: 1, color: Colors.grey.shade200),
+            const SizedBox(height: 12),
+            // Meta info
             Row(
               children: [
                 Expanded(
@@ -584,6 +765,24 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     );
   }
 
+  void _showSearchDialog(BuildContext context, WeatherMapNotifier notifier) {
+    showDialog(
+      context: context,
+      builder: (ctx) => _SearchDialog(notifier: notifier),
+    );
+  }
+
+  void _showAIRecommendationSheet(BuildContext context, WeatherMapState state) {
+    if (state.currentMap == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _AIRecommendationSheet(state: state),
+    );
+  }
+
   Widget _buildErrorOverlay(
     BuildContext context,
     WeatherMapState state,
@@ -623,7 +822,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             ),
             const SizedBox(height: 20),
             FilledButton.icon(
-              onPressed: () => notifier.loadInitialData(),
+              onPressed: () => notifier.refresh(),
               icon: const Icon(Icons.refresh, size: 18),
               label: const Text('Retry'),
               style: FilledButton.styleFrom(
@@ -696,6 +895,108 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     return '${diff.inDays}d ago';
+  }
+}
+
+class _DataCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+  final bool fullWidth;
+
+  const _DataCard({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+    this.fullWidth = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (fullWidth) {
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withOpacity(0.15), width: 1),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: color),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1A1A2E),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withOpacity(0.15), width: 1),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 18, color: color),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF1A1A2E),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -821,6 +1122,423 @@ class _MapControlButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _CurrentLocationButton extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _CurrentLocationButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 4,
+      shadowColor: Colors.black.withOpacity(0.2),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          width: 40,
+          height: 40,
+          padding: const EdgeInsets.all(8),
+          child: const Icon(
+            Icons.gps_fixed,
+            size: 20,
+            color: Color(0xFF0D1B2A),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchDialog extends StatefulWidget {
+  final WeatherMapNotifier notifier;
+
+  const _SearchDialog({required this.notifier});
+
+  @override
+  State<_SearchDialog> createState() => _SearchDialogState();
+}
+
+class _SearchDialogState extends State<_SearchDialog> {
+  final _controller = TextEditingController();
+  bool _isSearching = false;
+  List<Location> _results = [];
+
+  Future<void> _search(String query) async {
+    if (query.trim().isEmpty) {
+      setState(() {
+        _results = [];
+        _isSearching = false;
+      });
+      return;
+    }
+
+    setState(() => _isSearching = true);
+
+    try {
+      final results = await widget.notifier.searchPlaces(query);
+      setState(() {
+        _results = results;
+        _isSearching = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isSearching = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Search error: $e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Text(
+        'Search Location',
+        style: TextStyle(fontWeight: FontWeight.w600),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: 'Enter city, place, or coordinates',
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: _isSearching
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : (_controller.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              _controller.clear();
+                              _search('');
+                            },
+                          )
+                        : null),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              filled: true,
+            ),
+            onChanged: _search,
+            onSubmitted: _search,
+          ),
+          const SizedBox(height: 12),
+          if (_results.isNotEmpty)
+            Container(
+              constraints: const BoxConstraints(maxHeight: 200),
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: _results.length,
+                itemBuilder: (ctx, i) {
+                  final loc = _results[i];
+                  return ListTile(
+                    leading: const Icon(Icons.location_on, color: Colors.grey),
+                    title: Text(loc.name ?? 'Unknown'),
+                    subtitle: loc.address != null
+                        ? Text(
+                            loc.address!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          )
+                        : null,
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      widget.notifier.selectSearchResult(loc);
+                    },
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+      ],
+    );
+  }
+}
+
+class _AIRecommendationSheet extends StatelessWidget {
+  final WeatherMapState state;
+
+  const _AIRecommendationSheet({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Header
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF00B4D8), Color(0xFF00F5D4)],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.auto_awesome,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'AI Recommendations',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF1A1A2E),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Based on current weather at ${state.locationName ?? "your location"}',
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+          ),
+          const SizedBox(height: 20),
+          // Recommendations
+          ..._generateRecommendations(state).map((rec) {
+            return _RecommendationCard(
+              icon: rec['icon'] as IconData,
+              title: rec['title'] as String,
+              items: rec['items'] as List<String>,
+              color: rec['color'] as Color,
+            );
+          }),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  List<Map<String, dynamic>> _generateRecommendations(WeatherMapState state) {
+    final weather = state.currentMap?.currentWeather;
+    if (weather == null) {
+      return [
+        {
+          'icon': Icons.info,
+          'title': 'No Data',
+          'items': ['Weather data unavailable'],
+          'color': Colors.grey,
+        },
+      ];
+    }
+
+    final temp = weather.temperature;
+    final wind = weather.windSpeed;
+    final precip = weather.precipitation ?? 0;
+    final desc = weather.description.toLowerCase();
+
+    final canDo = <String>[];
+    final avoid = <String>[];
+
+    // Temperature-based
+    if (temp > 25) {
+      canDo.addAll(['swimming', 'beach visit', 'sunscreen essential']);
+      avoid.addAll(['intense midday sun exposure']);
+    } else if (temp > 15) {
+      canDo.addAll(['walking', 'jogging', 'cycling', 'outdoor dining']);
+    } else if (temp > 5) {
+      canDo.addAll(['light outdoor activities', 'sightseeing']);
+      avoid.addAll(['extended outdoor exposure without jacket']);
+    } else {
+      canDo.addAll(['indoor activities', 'museums', 'cafes']);
+      avoid.addAll(['long outdoor stays']);
+    }
+
+    // Wind-based
+    if (wind > 15) {
+      avoid.addAll(['boating', 'drone flying', 'cycling (high profile)']);
+      canDo.addAll(['wind-protected hiking']);
+    } else if (wind > 8) {
+      canDo.addAll(['kite flying', 'sailing (experienced)']);
+    } else {
+      canDo.addAll(['drone flying', 'picnics']);
+    }
+
+    // Precipitation-based
+    if (precip > 2) {
+      avoid.addAll(['picnics', 'hiking (risk of flash floods)']);
+      canDo.addAll(['cozy indoor time']);
+    } else if (precip > 0) {
+      avoid.addAll(['beach day']);
+      canDo.addAll(['short walks with umbrella']);
+    } else {
+      canDo.addAll(['stargazing', 'outdoor events']);
+    }
+
+    // Weather condition keywords
+    if (desc.contains('storm') || desc.contains('thunder')) {
+      avoid.addAll(['outdoor activities', 'swimming', 'climbing']);
+      canDo.addAll(['indoor safety']);
+    }
+
+    if (desc.contains('clear') || desc.contains('sunny')) {
+      canDo.addAll(['photography', 'sunrise/sunset viewing']);
+    }
+
+    // Always good
+    if (temp > 10 && wind < 10 && precip == 0) {
+      canDo.addAll(['road trip', 'park visit', 'outdoor sports']);
+    }
+
+    // Remove duplicates, limit lists
+    final uniqueCanDo = canDo.toSet().take(5).toList();
+    final uniqueAvoid = avoid.toSet().take(5).toList();
+
+    return [
+      {
+        'icon': Icons.check_circle,
+        'title': 'Good For',
+        'items': uniqueCanDo.isEmpty
+            ? ['general outdoor activities']
+            : uniqueCanDo,
+        'color': Colors.green,
+      },
+      {
+        'icon': Icons.cancel,
+        'title': 'Avoid',
+        'items': uniqueAvoid.isEmpty ? ['no major concerns'] : uniqueAvoid,
+        'color': Colors.red,
+      },
+    ];
+  }
+}
+
+class _RecommendationCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final List<String> items;
+  final Color color;
+
+  const _RecommendationCard({
+    required this.icon,
+    required this.title,
+    required this.items,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withOpacity(0.2), width: 1.2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...items.map(
+            (item) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('• ', style: TextStyle(color: Colors.grey.shade600)),
+                  Expanded(
+                    child: Text(
+                      item,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF2D2D3A),
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AIFab extends StatelessWidget {
+  final VoidCallback onPressed;
+
+  const _AIFab({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatingActionButton.extended(
+      onPressed: onPressed,
+      backgroundColor: const Color(0xFF00B4D8),
+      icon: const Icon(Icons.auto_awesome, color: Colors.white, size: 20),
+      label: const Text(
+        'AI Recommendations',
+        style: TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
+          fontSize: 13,
+        ),
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 6,
     );
   }
 }

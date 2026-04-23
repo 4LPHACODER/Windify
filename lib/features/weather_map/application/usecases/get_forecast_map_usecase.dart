@@ -13,6 +13,6 @@ class GetForecastMapUsecase {
       (l) => l.name == request.layer,
       orElse: () => WeatherLayer.radar,
     );
-    return await repository.getForecastMapByLayer(layer);
+    return await repository.getWeatherForLayer(request.location, layer);
   }
 }

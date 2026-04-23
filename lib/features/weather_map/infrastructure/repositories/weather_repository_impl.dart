@@ -3,7 +3,7 @@ import '../../domain/entities/weather_layer.dart';
 import '../../domain/repositories/weather_repository.dart';
 import '../datasources/weather_remote_datasource.dart';
 import '../datasources/weather_remote_datasource_impl.dart';
-import '../mappers/forecast_map_mapper.dart';
+import 'package:latlong2/latlong.dart';
 
 class WeatherRepositoryImpl implements WeatherRepository {
   final WeatherRemoteDatasource datasource;
@@ -12,14 +12,18 @@ class WeatherRepositoryImpl implements WeatherRepository {
     : datasource = datasource ?? WeatherRemoteDatasourceImpl();
 
   @override
-  Future<List<ForecastMap>> getForecastMaps() async {
-    final dtos = await datasource.getForecastMaps();
-    return ForecastMapMapper.fromDtoList(dtos);
+  Future<List<ForecastMap>> getWeatherForLocation(LatLng location) async {
+    final futures = WeatherLayer.values.map(
+      (layer) => datasource.getWeatherData(location, layer.name),
+    );
+    return await Future.wait(futures);
   }
 
   @override
-  Future<ForecastMap> getForecastMapByLayer(WeatherLayer layer) async {
-    final dto = await datasource.getForecastMapByLayer(layer.name);
-    return ForecastMapMapper.fromDto(dto);
+  Future<ForecastMap> getWeatherForLayer(
+    LatLng location,
+    WeatherLayer layer,
+  ) async {
+    return await datasource.getWeatherData(location, layer.name);
   }
 }

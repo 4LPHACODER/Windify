@@ -5,6 +5,7 @@ import '../requests/get_forecast_map_request.dart';
 import '../requests/load_weather_layers_request.dart';
 import '../usecases/get_forecast_map_usecase.dart';
 import '../usecases/get_weather_layers_usecase.dart';
+import 'package:latlong2/latlong.dart';
 
 class WeatherMapService {
   final GetWeatherLayersUsecase _getWeatherLayersUsecase;
@@ -12,13 +13,19 @@ class WeatherMapService {
 
   WeatherMapService(this._getWeatherLayersUsecase, this._getForecastMapUsecase);
 
-  Future<List<ForecastMap>> loadWeatherLayers() async {
-    const request = LoadWeatherLayersRequest();
+  Future<List<ForecastMap>> loadWeatherLayers(LatLng location) async {
+    final request = LoadWeatherLayersRequest(location: location);
     return await _getWeatherLayersUsecase(request);
   }
 
-  Future<ForecastMap> getForecastMap(WeatherLayer layer) async {
-    final request = GetForecastMapRequest(layer: layer.name);
+  Future<ForecastMap> getForecastMap({
+    required WeatherLayer layer,
+    required LatLng location,
+  }) async {
+    final request = GetForecastMapRequest(
+      layer: layer.name,
+      location: location,
+    );
     return await _getForecastMapUsecase(request);
   }
 
@@ -29,6 +36,6 @@ class WeatherMapService {
       (l) => l.name == request.layer,
       orElse: () => WeatherLayer.radar,
     );
-    return await getForecastMap(layer);
+    return await getForecastMap(layer: layer, location: request.location);
   }
 }

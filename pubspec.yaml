@@ -44,13 +44,17 @@ dependencies:
   # Environment variables
   flutter_dotenv: ^5.1.0
 
-  # Authentication
-  supabase_flutter: ^2.5.10
-  google_sign_in: ^6.2.1
-
   # Maps
   flutter_map: ^6.1.0
   latlong2: ^0.9.0
+
+  # Geolocation
+  geolocator: ^14.0.0
+  permission_handler: ^11.0.0
+
+  # Authentication
+  supabase_flutter: ^2.5.10
+  google_sign_in: ^6.2.1
 
 dev_dependencies:
   flutter_test:

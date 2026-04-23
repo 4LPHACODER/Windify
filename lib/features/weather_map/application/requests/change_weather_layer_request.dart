@@ -1,15 +1,11 @@
+import 'package:latlong2/latlong.dart';
+
 class ChangeWeatherLayerRequest {
   final String layer;
+  final LatLng location;
 
-  const ChangeWeatherLayerRequest({required this.layer});
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ChangeWeatherLayerRequest &&
-          runtimeType == other.runtimeType &&
-          layer == other.layer;
-
-  @override
-  int get hashCode => layer.hashCode;
+  const ChangeWeatherLayerRequest({
+    required this.layer,
+    required this.location,
+  });
 }

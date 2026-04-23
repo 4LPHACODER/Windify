@@ -1,6 +1,6 @@
-import '../dto/forecast_map_dto.dart';
+import '../../domain/entities/forecast_map.dart';
+import 'package:latlong2/latlong.dart';
 
 abstract class WeatherRemoteDatasource {
-  Future<List<ForecastMapDto>> getForecastMaps();
-  Future<ForecastMapDto> getForecastMapByLayer(String layer);
+  Future<ForecastMap> getWeatherData(LatLng location, String layer);
 }

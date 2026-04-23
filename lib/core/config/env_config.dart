@@ -8,10 +8,14 @@ class EnvConfig {
   static const String googleAndroidClientIdKey = 'GOOGLE_ANDROID_CLIENT_ID';
   static const String googleIosClientIdKey = 'GOOGLE_IOS_CLIENT_ID';
   static const String mapboxAccessTokenKey = 'MAPBOX_ACCESS_TOKEN';
+  static const String openWeatherApiKeyKey = 'OPENWEATHER_API_KEY';
+  static const String openWeatherBaseUrlKey = 'OPENWEATHER_BASE_URL';
 
   static String get supabaseUrl => _getRequired(supabaseUrlKey);
   static String get supabaseAnonKey => _getRequired(supabaseAnonKeyKey);
   static String? get mapboxAccessToken => _getString(mapboxAccessTokenKey);
+  static String? get openWeatherApiKey => _getString(openWeatherApiKeyKey);
+  static String? get openWeatherBaseUrl => _getString(openWeatherBaseUrlKey);
 
   /// Returns the appropriate Google Client ID for the current platform
   /// Web uses GOOGLE_WEB_CLIENT_ID
