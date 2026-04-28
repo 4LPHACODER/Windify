@@ -12,6 +12,7 @@ class WeatherMapState {
   final String? locationName;
   final List<Location> searchResults;
   final bool isSearching;
+  final bool isInfoExpanded;
 
   const WeatherMapState({
     this.isLoading = false,
@@ -22,6 +23,7 @@ class WeatherMapState {
     this.locationName,
     this.searchResults = const [],
     this.isSearching = false,
+    this.isInfoExpanded = true,
   });
 
   WeatherMapState copyWith({
@@ -33,6 +35,7 @@ class WeatherMapState {
     String? locationName,
     List<Location>? searchResults,
     bool? isSearching,
+    bool? isInfoExpanded,
   }) {
     return WeatherMapState(
       isLoading: isLoading ?? this.isLoading,
@@ -43,6 +46,7 @@ class WeatherMapState {
       locationName: locationName ?? this.locationName,
       searchResults: searchResults ?? this.searchResults,
       isSearching: isSearching ?? this.isSearching,
+      isInfoExpanded: isInfoExpanded ?? this.isInfoExpanded,
     );
   }
 }

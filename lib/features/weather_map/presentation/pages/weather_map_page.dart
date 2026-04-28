@@ -147,7 +147,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             child: Column(
               children: [
                 const SizedBox(height: 16),
-                _buildInfoCard(context, state),
+                _ExpandableWeatherCard(state: state, notifier: notifier),
                 const Spacer(),
               ],
             ),
@@ -392,219 +392,6 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     );
   }
 
-  Widget _buildInfoCard(BuildContext context, WeatherMapState state) {
-    if (state.currentMap == null) return const SizedBox.shrink();
-
-    final weather = state.currentMap!.currentWeather;
-    final wind = state.currentMap!.windInfo;
-    final wave = state.currentMap!.waveInfo;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(22),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 24,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header row
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: _getLayerColor(
-                      state.selectedLayer,
-                    ).withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: _getLayerColor(
-                        state.selectedLayer,
-                      ).withOpacity(0.2),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: Icon(
-                    _getLayerIcon(state.selectedLayer),
-                    size: 24,
-                    color: _getLayerColor(state.selectedLayer),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        state.currentMap!.title,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 18,
-                          color: const Color(0xFF1A1A2E),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        state.currentMap!.description,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey.shade600,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            Container(height: 1, color: Colors.grey.shade200),
-            const SizedBox(height: 16),
-            // Data cards (dynamic per layer)
-            if (state.selectedLayer == WeatherLayer.radar &&
-                weather != null) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: _DataCard(
-                      icon: Icons.water_drop,
-                      label: 'Precipitation',
-                      value: '${weather.precipitation ?? 0} mm',
-                      color: Colors.blue,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _DataCard(
-                      icon: Icons.thermostat,
-                      label: 'Temperature',
-                      value: '${weather.temperature.toStringAsFixed(1)}°C',
-                      color: Colors.orange,
-                    ),
-                  ),
-                ],
-              ),
-            ] else if (state.selectedLayer == WeatherLayer.wind &&
-                wind != null) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: _DataCard(
-                      icon: Icons.air,
-                      label: 'Wind Speed',
-                      value: '${wind.speed.toStringAsFixed(1)} m/s',
-                      color: Colors.green,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _DataCard(
-                      icon: Icons.explore,
-                      label: 'Direction',
-                      value: wind.directionName,
-                      color: Colors.purple,
-                    ),
-                  ),
-                ],
-              ),
-              if (wind.gust != null) ...[
-                const SizedBox(height: 12),
-                _DataCard(
-                  icon: Icons.bolt,
-                  label: 'Wind Gust',
-                  value: '${wind.gust!.toStringAsFixed(1)} m/s',
-                  color: Colors.orange,
-                  fullWidth: true,
-                ),
-              ],
-            ] else if (state.selectedLayer == WeatherLayer.wave &&
-                wave != null) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: _DataCard(
-                      icon: Icons.waves,
-                      label: 'Wave Height',
-                      value:
-                          '${wave.swellHeight?.toStringAsFixed(1) ?? "N/A"} m',
-                      color: Colors.cyan,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _DataCard(
-                      icon: Icons.info,
-                      label: 'Condition',
-                      value: wave.description,
-                      color: Colors.teal,
-                    ),
-                  ),
-                ],
-              ),
-            ] else ...[
-              // Fallback basic info
-              Row(
-                children: [
-                  Expanded(
-                    child: _DataCard(
-                      icon: Icons.thermostat,
-                      label: 'Temperature',
-                      value: weather != null
-                          ? '${weather.temperature.toStringAsFixed(1)}°C'
-                          : 'N/A',
-                      color: Colors.orange,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _DataCard(
-                      icon: Icons.water_drop,
-                      label: 'Humidity',
-                      value: weather != null ? '${weather.humidity}%' : 'N/A',
-                      color: Colors.blue,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-            const SizedBox(height: 12),
-            Container(height: 1, color: Colors.grey.shade200),
-            const SizedBox(height: 12),
-            // Meta info
-            Row(
-              children: [
-                Expanded(
-                  child: _InfoField(
-                    icon: Icons.update,
-                    label: 'Last Update',
-                    value: _formatTime(state.currentMap!.updatedAt),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _InfoField(
-                    icon: Icons.public,
-                    label: 'Coverage',
-                    value: 'Worldwide',
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildBottomNav(
     BuildContext context,
     WeatherMapState state,
@@ -837,6 +624,265 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _ExpandableWeatherCard({
+    required WeatherMapState state,
+    required WeatherMapNotifier notifier,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 24,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header (always visible)
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => notifier.toggleInfoExpanded(),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(22),
+                  topRight: Radius.circular(22),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: _getLayerColor(
+                            state.selectedLayer,
+                          ).withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: _getLayerColor(
+                              state.selectedLayer,
+                            ).withOpacity(0.2),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Icon(
+                          _getLayerIcon(state.selectedLayer),
+                          size: 22,
+                          color: _getLayerColor(state.selectedLayer),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              state.currentMap?.title ??
+                                  state.selectedLayer.displayName,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF1A1A2E),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              state.locationName ?? 'Select a location',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey.shade600,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      AnimatedRotation(
+                        turns: state.isInfoExpanded ? 0.5 : 0.0,
+                        duration: const Duration(milliseconds: 250),
+                        curve: Curves.easeInOut,
+                        child: Icon(
+                          Icons.expand_more,
+                          size: 24,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            // Expandable body with smooth animation
+            AnimatedSize(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: state.isInfoExpanded
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Divider(height: 1, thickness: 1),
+                        const SizedBox(height: 16),
+                        _buildDataCards(state),
+                        const SizedBox(height: 12),
+                        Container(height: 1, color: Colors.grey.shade200),
+                        const SizedBox(height: 12),
+                        _buildMetaInfo(state),
+                        const SizedBox(height: 8),
+                      ],
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDataCards(WeatherMapState state) {
+    final weather = state.currentMap?.currentWeather;
+    final wind = state.currentMap?.windInfo;
+    final wave = state.currentMap?.waveInfo;
+
+    if (state.selectedLayer == WeatherLayer.radar && weather != null) {
+      return Row(
+        children: [
+          Expanded(
+            child: _DataCard(
+              icon: Icons.water_drop,
+              label: 'Precipitation',
+              value: '${weather.precipitation ?? 0} mm',
+              color: Colors.blue,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _DataCard(
+              icon: Icons.thermostat,
+              label: 'Temperature',
+              value: '${weather.temperature.toStringAsFixed(1)}°C',
+              color: Colors.orange,
+            ),
+          ),
+        ],
+      );
+    } else if (state.selectedLayer == WeatherLayer.wind && wind != null) {
+      return Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: _DataCard(
+                  icon: Icons.air,
+                  label: 'Wind Speed',
+                  value: '${wind.speed.toStringAsFixed(1)} m/s',
+                  color: Colors.green,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _DataCard(
+                  icon: Icons.explore,
+                  label: 'Direction',
+                  value: wind.directionName,
+                  color: Colors.purple,
+                ),
+              ),
+            ],
+          ),
+          if (wind.gust != null) ...[
+            const SizedBox(height: 12),
+            _DataCard(
+              icon: Icons.bolt,
+              label: 'Wind Gust',
+              value: '${wind.gust!.toStringAsFixed(1)} m/s',
+              color: Colors.orange,
+              fullWidth: true,
+            ),
+          ],
+        ],
+      );
+    } else if (state.selectedLayer == WeatherLayer.wave && wave != null) {
+      return Row(
+        children: [
+          Expanded(
+            child: _DataCard(
+              icon: Icons.waves,
+              label: 'Wave Height',
+              value: '${wave.swellHeight?.toStringAsFixed(1) ?? "N/A"} m',
+              color: Colors.cyan,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _DataCard(
+              icon: Icons.info,
+              label: 'Condition',
+              value: wave.description,
+              color: Colors.teal,
+            ),
+          ),
+        ],
+      );
+    } else if (weather != null) {
+      // Fallback
+      return Row(
+        children: [
+          Expanded(
+            child: _DataCard(
+              icon: Icons.thermostat,
+              label: 'Temperature',
+              value: '${weather.temperature.toStringAsFixed(1)}°C',
+              color: Colors.orange,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _DataCard(
+              icon: Icons.water_drop,
+              label: 'Humidity',
+              value: '${weather.humidity}%',
+              color: Colors.blue,
+            ),
+          ),
+        ],
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildMetaInfo(WeatherMapState state) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        children: [
+          Expanded(
+            child: _InfoField(
+              icon: Icons.update,
+              label: 'Last Update',
+              value: _formatTime(state.currentMap!.updatedAt),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: _InfoField(
+              icon: Icons.public,
+              label: 'Coverage',
+              value: 'Worldwide',
+            ),
+          ),
+        ],
       ),
     );
   }

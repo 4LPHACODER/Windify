@@ -133,6 +133,10 @@ class WeatherMapNotifier extends StateNotifier<WeatherMapState> {
       placeName: state.locationName,
     );
   }
+
+  void toggleInfoExpanded() {
+    state = state.copyWith(isInfoExpanded: !state.isInfoExpanded);
+  }
 }
 
 final weatherMapNotifierProvider =
