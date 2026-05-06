@@ -17,14 +17,80 @@ class WeatherRemoteDatasourceImpl implements WeatherRemoteDatasource {
        _geocoding = geocoding ?? GeocodingService();
 
   @override
-  Future<ForecastMap> getWeatherData(LatLng location, String layer) async {
-    // Fetch current weather from OpenWeather
+  Future<ForecastMap> getWeatherData(
+    LatLng location,
+    String layer, {
+    DateTime? forecastTime,
+  }) async {
+    if (forecastTime != null) {
+      final timeline = await getWeatherTimeline(location, layer);
+      if (timeline.isNotEmpty) {
+        return _pickClosestByTime(timeline, forecastTime);
+      }
+    }
+
     final currentWeather = await _weatherApi.getCurrentWeatherByCoords(
       lat: location.latitude,
       lon: location.longitude,
     );
+    final placeName = await _resolvePlaceName(location);
 
-    // Reverse geocode to get place name
+    return _buildForecastMap(
+      layer: layer,
+      location: location,
+      placeName: placeName,
+      weather: currentWeather,
+      idSeed: 'current',
+    );
+  }
+
+  @override
+  Future<List<ForecastMap>> getWeatherTimeline(LatLng location, String layer) async {
+    final placeName = await _resolvePlaceName(location);
+    final currentWeather = await _weatherApi.getCurrentWeatherByCoords(
+      lat: location.latitude,
+      lon: location.longitude,
+    );
+    final forecastResponse = await _weatherApi.getForecast(
+      lat: location.latitude,
+      lon: location.longitude,
+    );
+    final list = (forecastResponse['list'] as List?) ?? const [];
+
+    final timeline = <ForecastMap>[
+      _buildForecastMap(
+        layer: layer,
+        location: location,
+        placeName: placeName,
+        weather: currentWeather,
+        idSeed: 'current',
+      ),
+    ];
+
+    for (final item in list.take(24)) {
+      if (item is! Map<String, dynamic>) continue;
+      final weather = CurrentWeather.fromJson(item);
+      timeline.add(
+        _buildForecastMap(
+          layer: layer,
+          location: location,
+          placeName: placeName,
+          weather: weather,
+          idSeed: weather.timestamp.toIso8601String(),
+        ),
+      );
+    }
+
+    final deduped = <DateTime, ForecastMap>{};
+    for (final entry in timeline) {
+      deduped[entry.updatedAt] = entry;
+    }
+    final result = deduped.values.toList()
+      ..sort((a, b) => a.updatedAt.compareTo(b.updatedAt));
+    return result;
+  }
+
+  Future<String> _resolvePlaceName(LatLng location) async {
     String placeName = 'Selected Location';
     try {
       final loc = await _geocoding.reverseGeocode(location);
@@ -32,32 +98,52 @@ class WeatherRemoteDatasourceImpl implements WeatherRemoteDatasource {
     } catch (_) {
       // ignore
     }
+    return placeName;
+  }
 
-    // Wind info
+  ForecastMap _buildForecastMap({
+    required String layer,
+    required LatLng location,
+    required String placeName,
+    required CurrentWeather weather,
+    required String idSeed,
+  }) {
     final windInfo = WindInfo(
-      speed: currentWeather.windSpeed,
-      direction: currentWeather.windDirection,
-      directionName: _getCompassDirection(currentWeather.windDirection),
-      gust: currentWeather.windGust,
+      speed: weather.windSpeed,
+      direction: weather.windDirection,
+      directionName: _getCompassDirection(weather.windDirection),
+      gust: weather.windGust,
     );
 
-    // Wave estimate
     final waveInfo = WaveInfo.estimate(
-      windSpeed: currentWeather.windSpeed,
-      weatherMain: currentWeather.description,
+      windSpeed: weather.windSpeed,
+      weatherMain: weather.description,
     );
 
     return ForecastMap(
-      id: '${layer}_${DateTime.now().millisecondsSinceEpoch}',
+      id: '${layer}_$idSeed',
       layer: _parseLayer(layer),
       title: _getTitleForLayer(layer),
-      description: '$placeName • ${currentWeather.description}',
+      description: '$placeName • ${weather.description}',
       coordinates: location,
-      currentWeather: currentWeather,
+      currentWeather: weather,
       windInfo: windInfo,
       waveInfo: waveInfo,
-      updatedAt: currentWeather.timestamp,
+      updatedAt: weather.timestamp,
     );
+  }
+
+  ForecastMap _pickClosestByTime(List<ForecastMap> timeline, DateTime target) {
+    ForecastMap closest = timeline.first;
+    var smallestDiff = closest.updatedAt.difference(target).abs();
+    for (final map in timeline.skip(1)) {
+      final diff = map.updatedAt.difference(target).abs();
+      if (diff < smallestDiff) {
+        smallestDiff = diff;
+        closest = map;
+      }
+    }
+    return closest;
   }
 
   WeatherLayer _parseLayer(String layer) {
@@ -68,6 +154,8 @@ class WeatherRemoteDatasourceImpl implements WeatherRemoteDatasource {
         return WeatherLayer.wind;
       case 'wave':
         return WeatherLayer.wave;
+      case 'cloud':
+        return WeatherLayer.cloud;
       default:
         return WeatherLayer.radar;
     }
@@ -81,6 +169,8 @@ class WeatherRemoteDatasourceImpl implements WeatherRemoteDatasource {
         return 'Wind Forecast';
       case 'wave':
         return 'Wave Forecast';
+      case 'cloud':
+        return 'Cloud Cover';
       default:
         return 'Weather';
     }

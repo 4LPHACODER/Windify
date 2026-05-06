@@ -22,8 +22,21 @@ class WeatherRepositoryImpl implements WeatherRepository {
   @override
   Future<ForecastMap> getWeatherForLayer(
     LatLng location,
+    WeatherLayer layer, [
+    DateTime? forecastTime,
+  ]) async {
+    return await datasource.getWeatherData(
+      location,
+      layer.name,
+      forecastTime: forecastTime,
+    );
+  }
+
+  @override
+  Future<List<ForecastMap>> getTimelineForLayer(
+    LatLng location,
     WeatherLayer layer,
   ) async {
-    return await datasource.getWeatherData(location, layer.name);
+    return await datasource.getWeatherTimeline(location, layer.name);
   }
 }

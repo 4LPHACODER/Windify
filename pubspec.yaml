@@ -51,6 +51,7 @@ dependencies:
   # Geolocation
   geolocator: ^14.0.0
   permission_handler: ^11.0.0
+  shared_preferences: ^2.3.3
 
   # Authentication
   supabase_flutter: ^2.5.10

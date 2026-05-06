@@ -33,13 +33,23 @@ class WeatherMapNotifier extends StateNotifier<WeatherMapState> {
     final loc = state.activeLocationForWeather;
     state = state.copyWith(isLoadingWeather: true, error: null);
     try {
-      final map = await _weatherMapService.getForecastMap(
+      final timelineMaps = await _weatherMapService.getForecastTimeline(
         layer: state.selectedLayer,
         location: loc,
       );
+      final fallbackMap = await _weatherMapService.getForecastMap(
+        layer: state.selectedLayer,
+        location: loc,
+      );
+      final frames = timelineMaps.isEmpty ? [fallbackMap] : timelineMaps;
+      final index = state.selectedTimelineIndex.clamp(0, frames.length - 1);
+      final map = frames[index];
       state = state.copyWith(
         isLoadingWeather: false,
         currentMap: map,
+        timelineMaps: frames,
+        selectedTimelineIndex: index,
+        isTimelinePlaying: false,
         error: null,
       );
       WeatherMapDebugLog.activeWeatherTarget(
@@ -182,18 +192,12 @@ class WeatherMapNotifier extends StateNotifier<WeatherMapState> {
     state = state.copyWith(
       selectedLayer: layer,
       isLoadingWeather: true,
+      selectedTimelineIndex: 0,
+      isTimelinePlaying: false,
       error: null,
     );
 
-    try {
-      final map = await _weatherMapService.getForecastMap(
-        layer: layer,
-        location: state.activeLocationForWeather,
-      );
-      state = state.copyWith(isLoadingWeather: false, currentMap: map);
-    } catch (e) {
-      state = state.copyWith(isLoadingWeather: false, error: e.toString());
-    }
+    await _refreshWeatherForActiveLocation();
   }
 
   /// Sidebar "Refresh": clear selected pin, use GPS or fallback for weather, keep map camera (no logic here).
@@ -219,6 +223,33 @@ class WeatherMapNotifier extends StateNotifier<WeatherMapState> {
 
   void dismissError() {
     state = state.copyWith(error: null);
+  }
+
+  void selectTimelineIndex(int index) {
+    if (state.timelineMaps.isEmpty) return;
+    final bounded = index.clamp(0, state.timelineMaps.length - 1);
+    state = state.copyWith(
+      selectedTimelineIndex: bounded,
+      currentMap: state.timelineMaps[bounded],
+      isTimelinePlaying: false,
+      error: null,
+    );
+  }
+
+  void playNextTimelineStep() {
+    if (state.timelineMaps.isEmpty) return;
+    final nextIndex = (state.selectedTimelineIndex + 1) % state.timelineMaps.length;
+    state = state.copyWith(
+      selectedTimelineIndex: nextIndex,
+      currentMap: state.timelineMaps[nextIndex],
+      isTimelinePlaying: true,
+      error: null,
+    );
+  }
+
+  void stopTimelinePlayback() {
+    if (!state.isTimelinePlaying) return;
+    state = state.copyWith(isTimelinePlaying: false);
   }
 }
 

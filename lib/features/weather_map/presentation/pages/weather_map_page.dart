@@ -5,9 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:windify_v2/core/widgets/app_brand_logo.dart';
+import 'package:windify_v2/features/settings/domain/entities/app_preferences.dart';
+import 'package:windify_v2/features/settings/presentation/pages/settings_page.dart';
+import 'package:windify_v2/features/settings/presentation/providers/app_preferences_provider.dart';
 
 import '../../domain/entities/weather_layer.dart';
 import '../../domain/entities/location.dart';
+import '../../domain/entities/forecast_map.dart';
 import '../controllers/weather_map_controller.dart';
 import '../map/weather_map_camera.dart';
 import '../map/weather_map_debug_log.dart';
@@ -29,9 +33,11 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
   final MapController _mapController = MapController();
   static const double _defaultZoom = 5.0;
   final TextEditingController _searchController = TextEditingController();
+  Timer? _timelinePlaybackTimer;
 
   @override
   void dispose() {
+    _timelinePlaybackTimer?.cancel();
     _mapController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -175,6 +181,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     );
     final state = ref.watch(weatherMapNotifierProvider);
     final notifier = ref.read(weatherMapNotifierProvider.notifier);
+    final preferences = ref.watch(appPreferencesProvider);
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -268,7 +275,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
           IconButton(
             tooltip: 'Settings',
             icon: const Icon(Icons.settings, color: Colors.white, size: 22),
-            onPressed: () {},
+            onPressed: () => _openSettingsPage(context),
           ),
           const SizedBox(width: 8),
         ],
@@ -276,7 +283,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
       body: Stack(
         children: [
           // Map base
-          Positioned.fill(child: _buildMap(state)),
+          Positioned.fill(child: _buildMap(state, preferences)),
           // Gradient overlay
           Positioned.fill(
             child: IgnorePointer(
@@ -298,12 +305,13 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
           ),
           // Radar tint (replaces a second TileLayer inside FlutterMap — fewer
           // tile viewports / layout issues with flutter_map on web; see 6.txt).
-          if (state.selectedLayer == WeatherLayer.radar)
+          if (state.selectedLayer == WeatherLayer.radar ||
+              state.selectedLayer == WeatherLayer.cloud)
             Positioned.fill(
               child: IgnorePointer(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
-                    color: _getLayerColor(WeatherLayer.radar).withOpacity(0.09),
+                    color: _getLayerColor(state.selectedLayer).withOpacity(0.09),
                   ),
                 ),
               ),
@@ -318,7 +326,11 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const SizedBox(height: 16),
-                  _ExpandableWeatherCard(state: state, notifier: notifier),
+                  _ExpandableWeatherCard(
+                    state: state,
+                    notifier: notifier,
+                    preferences: preferences,
+                  ),
                 ],
               ),
             ),
@@ -458,7 +470,12 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             ),
         ],
       ),
-      bottomNavigationBar: _buildBottomNav(context, state, notifier),
+      bottomNavigationBar: _buildBottomNav(
+        context,
+        state,
+        notifier,
+        preferences,
+      ),
       // AI recommendation FAB
       floatingActionButton: _AIFab(
         onPressed: () => _showAIRecommendationSheet(context, state),
@@ -467,7 +484,13 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     );
   }
 
-  Widget _buildMap(WeatherMapState state) {
+  void _openSettingsPage(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const SettingsPage()),
+    );
+  }
+
+  Widget _buildMap(WeatherMapState state, AppPreferences preferences) {
     final mapboxToken = EnvConfig.mapboxAccessToken;
     if (mapboxToken == null || mapboxToken.isEmpty) {
       return _buildMapFallback(state);
@@ -489,7 +512,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
       children: [
         TileLayer(
           urlTemplate:
-              'https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/{z}/{x}/{y}?access_token={accessToken}',
+              'https://api.mapbox.com/styles/v1/${preferences.mapStyle.mapboxStyleId}/tiles/{z}/{x}/{y}?access_token={accessToken}',
           additionalOptions: {'accessToken': mapboxToken},
           userAgentPackageName: 'com.windify.app',
         ),
@@ -651,6 +674,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     BuildContext context,
     WeatherMapState state,
     WeatherMapNotifier notifier,
+    AppPreferences preferences,
   ) {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -675,7 +699,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             const SizedBox(height: 12),
             const Divider(height: 1, thickness: 1, indent: 20, endIndent: 20),
             const SizedBox(height: 12),
-            _buildBottomActions(context),
+            _buildBottomActions(context, state, notifier, preferences),
             const SizedBox(height: 16),
           ],
         ),
@@ -717,6 +741,15 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             WeatherLayer.wave,
             state.selectedLayer == WeatherLayer.wave,
             () => notifier.selectLayer(WeatherLayer.wave),
+          ),
+          const SizedBox(width: 12),
+          _buildSegment(
+            context,
+            'Cloud',
+            Icons.cloud,
+            WeatherLayer.cloud,
+            state.selectedLayer == WeatherLayer.cloud,
+            () => notifier.selectLayer(WeatherLayer.cloud),
           ),
         ],
       ),
@@ -774,7 +807,12 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     );
   }
 
-  Widget _buildBottomActions(BuildContext context) {
+  Widget _buildBottomActions(
+    BuildContext context,
+    WeatherMapState state,
+    WeatherMapNotifier notifier,
+    AppPreferences preferences,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
@@ -791,7 +829,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             child: _BottomNavAction(
               icon: Icons.layers,
               label: 'Layers',
-              onPressed: () {},
+              onPressed: () => _showLayersSheet(context, state, notifier),
             ),
           ),
           const SizedBox(width: 12),
@@ -799,12 +837,175 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             child: _BottomNavAction(
               icon: Icons.timeline,
               label: 'Timeline',
-              onPressed: () {},
+              onPressed: () => _showTimelineSheet(
+                context,
+                state,
+                notifier,
+                preferences,
+              ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  void _showLayersSheet(
+    BuildContext context,
+    WeatherMapState state,
+    WeatherMapNotifier notifier,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Map layers',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...WeatherLayer.values.map(
+                  (layer) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(_getLayerIcon(layer)),
+                    title: Text(layer.displayName),
+                    trailing: layer == state.selectedLayer
+                        ? Icon(
+                            Icons.check_circle,
+                            color: Theme.of(ctx).colorScheme.primary,
+                          )
+                        : const Icon(Icons.circle_outlined),
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      unawaited(notifier.selectLayer(layer));
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showTimelineSheet(
+    BuildContext context,
+    WeatherMapState state,
+    WeatherMapNotifier notifier,
+    AppPreferences preferences,
+  ) {
+    if (state.timelineMaps.length <= 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Timeline data is not available yet.')),
+      );
+      return;
+    }
+    var localIndex = state.selectedTimelineIndex.clamp(
+      0,
+      state.timelineMaps.length - 1,
+    );
+    var isPlaying = state.isTimelinePlaying;
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Forecast timeline',
+                      style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _formatForecastLabel(state.timelineMaps[localIndex].updatedAt),
+                      style: Theme.of(ctx).textTheme.bodyMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    Slider(
+                      value: localIndex.toDouble(),
+                      min: 0,
+                      max: (state.timelineMaps.length - 1).toDouble(),
+                      divisions: state.timelineMaps.length - 1,
+                      label: _formatForecastLabel(
+                        state.timelineMaps[localIndex].updatedAt,
+                      ),
+                      onChanged: (value) {
+                        localIndex = value.round();
+                        setSheetState(() {});
+                        notifier.selectTimelineIndex(localIndex);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _formatMiniWeatherSummary(
+                              state.timelineMaps[localIndex],
+                              preferences,
+                            ),
+                            style: Theme.of(ctx).textTheme.bodySmall,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: isPlaying
+                              ? 'Pause playback'
+                              : 'Play timeline',
+                          onPressed: () {
+                            if (isPlaying) {
+                              _timelinePlaybackTimer?.cancel();
+                              notifier.stopTimelinePlayback();
+                              isPlaying = false;
+                              setSheetState(() {});
+                              return;
+                            }
+                            notifier.playNextTimelineStep();
+                            _timelinePlaybackTimer?.cancel();
+                            isPlaying = true;
+                            setSheetState(() {});
+                            _timelinePlaybackTimer = Timer.periodic(
+                              const Duration(seconds: 2),
+                              (_) => notifier.playNextTimelineStep(),
+                            );
+                          },
+                          icon: Icon(
+                            isPlaying
+                                ? Icons.pause_circle_filled
+                                : Icons.play_circle_fill,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    ).whenComplete(() {
+      _timelinePlaybackTimer?.cancel();
+      notifier.stopTimelinePlayback();
+    });
   }
 
   void _showSearchDialog(BuildContext context, WeatherMapNotifier notifier) {
@@ -827,6 +1028,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
   Widget _ExpandableWeatherCard({
     required WeatherMapState state,
     required WeatherMapNotifier notifier,
+    required AppPreferences preferences,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -922,7 +1124,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             if (state.isInfoExpanded) ...[
               const Divider(height: 1, thickness: 1),
               const SizedBox(height: 16),
-              _buildDataCards(state),
+              _buildDataCards(state, preferences),
               const SizedBox(height: 12),
               Container(height: 1, color: Colors.grey.shade200),
               const SizedBox(height: 12),
@@ -935,7 +1137,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     );
   }
 
-  Widget _buildDataCards(WeatherMapState state) {
+  Widget _buildDataCards(WeatherMapState state, AppPreferences preferences) {
     final weather = state.currentMap?.currentWeather;
     final wind = state.currentMap?.windInfo;
     final wave = state.currentMap?.waveInfo;
@@ -956,7 +1158,10 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             child: _DataCard(
               icon: Icons.thermostat,
               label: 'Temperature',
-              value: '${weather.temperature.toStringAsFixed(1)}°C',
+              value: _formatTemperature(
+                weather.temperature,
+                preferences.temperatureUnit,
+              ),
               color: Colors.orange,
             ),
           ),
@@ -971,7 +1176,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
                 child: _DataCard(
                   icon: Icons.air,
                   label: 'Wind Speed',
-                  value: '${wind.speed.toStringAsFixed(1)} m/s',
+                  value: _formatWindSpeed(wind.speed, preferences.windSpeedUnit),
                   color: Colors.green,
                 ),
               ),
@@ -991,7 +1196,10 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             _DataCard(
               icon: Icons.bolt,
               label: 'Wind Gust',
-              value: '${wind.gust!.toStringAsFixed(1)} m/s',
+              value: _formatWindSpeed(
+                wind.gust!,
+                preferences.windSpeedUnit,
+              ),
               color: Colors.orange,
               fullWidth: true,
             ),
@@ -1020,6 +1228,28 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
           ),
         ],
       );
+    } else if (state.selectedLayer == WeatherLayer.cloud && weather != null) {
+      return Row(
+        children: [
+          Expanded(
+            child: _DataCard(
+              icon: Icons.cloud,
+              label: 'Cloudiness',
+              value: weather.description,
+              color: Colors.blueGrey,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _DataCard(
+              icon: Icons.opacity,
+              label: 'Humidity',
+              value: '${weather.humidity}%',
+              color: Colors.indigo,
+            ),
+          ),
+        ],
+      );
     } else if (weather != null) {
       // Fallback
       return Row(
@@ -1028,7 +1258,10 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             child: _DataCard(
               icon: Icons.thermostat,
               label: 'Temperature',
-              value: '${weather.temperature.toStringAsFixed(1)}°C',
+              value: _formatTemperature(
+                weather.temperature,
+                preferences.temperatureUnit,
+              ),
               color: Colors.orange,
             ),
           ),
@@ -1049,6 +1282,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
 
   Widget _buildMetaInfo(WeatherMapState state) {
     final updatedAt = state.currentMap?.updatedAt;
+    final forecastTime = state.selectedForecastTime;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
@@ -1065,9 +1299,11 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
           const SizedBox(width: 16),
           Expanded(
             child: _InfoField(
-              icon: Icons.public,
-              label: 'Coverage',
-              value: 'Worldwide',
+              icon: Icons.timeline,
+              label: 'Forecast Time',
+              value: forecastTime != null
+                  ? _formatForecastLabel(forecastTime)
+                  : 'Current',
             ),
           ),
         ],
@@ -1083,6 +1319,8 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
         return const Color(0xFF00F5D4);
       case WeatherLayer.wave:
         return const Color(0xFF4CC9F0);
+      case WeatherLayer.cloud:
+        return const Color(0xFF90A4AE);
     }
   }
 
@@ -1094,6 +1332,8 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
         return Icons.air;
       case WeatherLayer.wave:
         return Icons.waves;
+      case WeatherLayer.cloud:
+        return Icons.cloud;
     }
   }
 
@@ -1120,6 +1360,13 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
           const Color(0xFF1A364A),
           const Color(0xFF4A6A8A),
         ];
+      case WeatherLayer.cloud:
+        return [
+          const Color(0xFF1C2630),
+          const Color(0xFF2C3A47),
+          const Color(0xFF4E5D6C),
+          const Color(0xFF73889A),
+        ];
     }
   }
 
@@ -1129,6 +1376,53 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     return '${diff.inDays}d ago';
+  }
+
+  String _formatForecastLabel(DateTime time) {
+    final now = DateTime.now();
+    final dayDelta = DateTime(
+      time.year,
+      time.month,
+      time.day,
+    ).difference(DateTime(now.year, now.month, now.day)).inDays;
+    final hourText =
+        '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    if (dayDelta == 0) return 'Today $hourText';
+    if (dayDelta == 1) return 'Tomorrow $hourText';
+    return '${time.month}/${time.day} $hourText';
+  }
+
+  String _formatTemperature(
+    double celsius,
+    TemperatureUnitPreference unit,
+  ) {
+    switch (unit) {
+      case TemperatureUnitPreference.celsius:
+        return '${celsius.toStringAsFixed(1)}°C';
+      case TemperatureUnitPreference.fahrenheit:
+        final f = (celsius * 9 / 5) + 32;
+        return '${f.toStringAsFixed(1)}°F';
+    }
+  }
+
+  String _formatWindSpeed(
+    double metersPerSecond,
+    WindSpeedUnitPreference unit,
+  ) {
+    switch (unit) {
+      case WindSpeedUnitPreference.metersPerSecond:
+        return '${metersPerSecond.toStringAsFixed(1)} m/s';
+      case WindSpeedUnitPreference.kilometersPerHour:
+        return '${(metersPerSecond * 3.6).toStringAsFixed(1)} km/h';
+      case WindSpeedUnitPreference.milesPerHour:
+        return '${(metersPerSecond * 2.23694).toStringAsFixed(1)} mph';
+    }
+  }
+
+  String _formatMiniWeatherSummary(ForecastMap map, AppPreferences preferences) {
+    final weather = map.currentWeather;
+    if (weather == null) return 'No forecast details available.';
+    return 'Temp ${_formatTemperature(weather.temperature, preferences.temperatureUnit)}  •  Wind ${_formatWindSpeed(weather.windSpeed, preferences.windSpeedUnit)}';
   }
 }
 

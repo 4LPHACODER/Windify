@@ -24,6 +24,9 @@ class WeatherMapState {
   final bool isInfoExpanded;
   final bool isRequestingLocation;
   final LocationPermission locationPermissionStatus;
+  final List<ForecastMap> timelineMaps;
+  final int selectedTimelineIndex;
+  final bool isTimelinePlaying;
 
   const WeatherMapState({
     this.isLoadingWeather = false,
@@ -39,6 +42,9 @@ class WeatherMapState {
     this.isInfoExpanded = true,
     this.isRequestingLocation = false,
     this.locationPermissionStatus = LocationPermission.denied,
+    this.timelineMaps = const [],
+    this.selectedTimelineIndex = 0,
+    this.isTimelinePlaying = false,
   });
 
   LatLng get activeLocationForWeather =>
@@ -52,6 +58,18 @@ class WeatherMapState {
       return userLocationLabel ?? 'Your location';
     }
     return fallbackLabel;
+  }
+
+  List<DateTime> get availableForecastTimes =>
+      timelineMaps.map((entry) => entry.updatedAt).toList(growable: false);
+
+  DateTime? get selectedForecastTime {
+    if (timelineMaps.isEmpty ||
+        selectedTimelineIndex < 0 ||
+        selectedTimelineIndex >= timelineMaps.length) {
+      return null;
+    }
+    return timelineMaps[selectedTimelineIndex].updatedAt;
   }
 
   WeatherMapState copyWith({
@@ -68,6 +86,9 @@ class WeatherMapState {
     bool? isInfoExpanded,
     bool? isRequestingLocation,
     LocationPermission? locationPermissionStatus,
+    List<ForecastMap>? timelineMaps,
+    int? selectedTimelineIndex,
+    bool? isTimelinePlaying,
   }) {
     return WeatherMapState(
       isLoadingWeather: isLoadingWeather ?? this.isLoadingWeather,
@@ -95,6 +116,9 @@ class WeatherMapState {
           isRequestingLocation ?? this.isRequestingLocation,
       locationPermissionStatus:
           locationPermissionStatus ?? this.locationPermissionStatus,
+      timelineMaps: timelineMaps ?? this.timelineMaps,
+      selectedTimelineIndex: selectedTimelineIndex ?? this.selectedTimelineIndex,
+      isTimelinePlaying: isTimelinePlaying ?? this.isTimelinePlaying,
     );
   }
 }

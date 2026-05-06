@@ -1,4 +1,4 @@
-enum WeatherLayer { radar, wind, wave }
+enum WeatherLayer { radar, wind, wave, cloud }
 
 extension WeatherLayerExtension on WeatherLayer {
   String get displayName {
@@ -9,6 +9,8 @@ extension WeatherLayerExtension on WeatherLayer {
         return 'Wind Forecast';
       case WeatherLayer.wave:
         return 'Wave Forecast';
+      case WeatherLayer.cloud:
+        return 'Cloud Cover';
     }
   }
 
@@ -20,6 +22,8 @@ extension WeatherLayerExtension on WeatherLayer {
         return 'assets/icons/wind.png';
       case WeatherLayer.wave:
         return 'assets/icons/wave.png';
+      case WeatherLayer.cloud:
+        return 'assets/icons/cloud.png';
     }
   }
 }

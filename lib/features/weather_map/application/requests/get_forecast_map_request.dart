@@ -3,8 +3,13 @@ import 'package:latlong2/latlong.dart';
 class GetForecastMapRequest {
   final String layer;
   final LatLng location;
+  final DateTime? forecastTime;
 
-  const GetForecastMapRequest({required this.layer, required this.location});
+  const GetForecastMapRequest({
+    required this.layer,
+    required this.location,
+    this.forecastTime,
+  });
 
   @override
   bool operator ==(Object other) =>
@@ -12,8 +17,9 @@ class GetForecastMapRequest {
       other is GetForecastMapRequest &&
           runtimeType == other.runtimeType &&
           layer == other.layer &&
-          location == other.location;
+          location == other.location &&
+          forecastTime == other.forecastTime;
 
   @override
-  int get hashCode => layer.hashCode ^ location.hashCode;
+  int get hashCode => layer.hashCode ^ location.hashCode ^ forecastTime.hashCode;
 }

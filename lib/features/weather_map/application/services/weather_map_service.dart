@@ -21,12 +21,24 @@ class WeatherMapService {
   Future<ForecastMap> getForecastMap({
     required WeatherLayer layer,
     required LatLng location,
+    DateTime? forecastTime,
   }) async {
     final request = GetForecastMapRequest(
       layer: layer.name,
       location: location,
+      forecastTime: forecastTime,
     );
     return await _getForecastMapUsecase(request);
+  }
+
+  Future<List<ForecastMap>> getForecastTimeline({
+    required WeatherLayer layer,
+    required LatLng location,
+  }) async {
+    return await _getForecastMapUsecase.getTimelineForLayer(
+      location,
+      layer,
+    );
   }
 
   Future<ForecastMap> changeWeatherLayer(
