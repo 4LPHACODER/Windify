@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:windify_v2/core/widgets/app_brand_logo.dart';
 
 import '../controllers/auth_controller.dart';
 import '../states/auth_state.dart';
@@ -47,6 +48,7 @@ class _SignupPageState extends ConsumerState<SignupPage> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
+    final compact = MediaQuery.of(context).size.width < 360;
 
     ref.listen<AuthState>(authControllerProvider, (previous, next) {
       if (next.error != null) {
@@ -58,86 +60,74 @@ class _SignupPageState extends ConsumerState<SignupPage> {
 
     return Scaffold(
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Form(
-            key: _formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 48),
-                  // App Title
-                  Text(
-                    'Windify',
-                    style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.primary,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 24),
+                    AppBrandLogo(
+                      logoSize: compact ? 84 : 104,
+                      borderRadius: compact ? 22 : 26,
+                      subtitle: 'Create your account',
+                      spacing: 12,
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Create your account',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 48),
-                  // Email Field
-                  EmailInputField(controller: _emailController),
-                  const SizedBox(height: 16),
-                  // Password Field
-                  PasswordInputField(controller: _passwordController),
-                  const SizedBox(height: 16),
-                  // Confirm Password Field
-                  TextFormField(
-                    controller: _confirmPasswordController,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Confirm Password',
-                      hintText: 'Re-enter your password',
-                      prefixIcon: Icon(Icons.lock),
+                    const SizedBox(height: 40),
+                    EmailInputField(controller: _emailController),
+                    const SizedBox(height: 16),
+                    PasswordInputField(controller: _passwordController),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _confirmPasswordController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Confirm Password',
+                        hintText: 'Re-enter your password',
+                        prefixIcon: Icon(Icons.lock),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please confirm your password';
+                        }
+                        if (value != _passwordController.text) {
+                          return 'Passwords do not match';
+                        }
+                        return null;
+                      },
                     ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please confirm your password';
-                      }
-                      if (value != _passwordController.text) {
-                        return 'Passwords do not match';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 24),
-                  // Sign Up Button
-                  AuthButton(
-                    text: 'Sign Up',
-                    onPressed: authState.isLoading ? null : _signUp,
-                    isLoading: authState.isLoading,
-                  ),
-                  const SizedBox(height: 16),
-                  // Continue with Google
-                  GoogleSignInButton(
-                    onPressed: authState.isLoading ? null : _signInWithGoogle,
-                  ),
-                  const SizedBox(height: 24),
-                  // Login Link
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'Already have an account? ',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                        },
-                        child: const Text('Sign In'),
-                      ),
-                    ],
-                  ),
-                ],
+                    const SizedBox(height: 24),
+                    AuthButton(
+                      text: 'Sign Up',
+                      onPressed: authState.isLoading ? null : _signUp,
+                      isLoading: authState.isLoading,
+                    ),
+                    const SizedBox(height: 16),
+                    GoogleSignInButton(
+                      onPressed: authState.isLoading ? null : _signInWithGoogle,
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Already have an account? ',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                          },
+                          child: const Text('Sign In'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

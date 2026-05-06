@@ -28,7 +28,7 @@ class WeatherRemoteDatasourceImpl implements WeatherRemoteDatasource {
     String placeName = 'Selected Location';
     try {
       final loc = await _geocoding.reverseGeocode(location);
-      if (loc.name != null) placeName = loc.name!;
+      placeName = loc.name ?? loc.address ?? placeName;
     } catch (_) {
       // ignore
     }

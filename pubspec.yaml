@@ -81,7 +81,14 @@ flutter:
   # Assets
   assets:
     - .env
+    - assets/images/windify_logo.png
 
+flutter_launcher_icons:
+    android: true
+    image_path: assets/icon/app_icon.png
+    # optional for Android 13+ adaptive icons:
+    adaptive_icon_background: "#FFFFFF"
+    adaptive_icon_foreground: "assets/icon/app_icon.png"
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:windify_v2/core/widgets/app_brand_logo.dart';
 
 import '../controllers/auth_controller.dart';
 import '../states/auth_state.dart';
@@ -124,44 +125,14 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   Widget _buildLogo() {
-    return Column(
-      children: [
-        Container(
-          width: 72,
-          height: 72,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF1E88E5), Color(0xFF0D47A1)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF1E88E5).withOpacity(0.3),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: const Icon(Icons.waves, size: 40, color: Colors.white),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          'Windify',
-          style: Theme.of(context).textTheme.displayMedium?.copyWith(
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.5,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Weather & Forecast',
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade500),
-        ),
-      ],
+    final width = MediaQuery.of(context).size.width;
+    final compact = width < 360;
+
+    return AppBrandLogo(
+      logoSize: compact ? 84 : 104,
+      borderRadius: compact ? 22 : 26,
+      subtitle: 'Weather & Forecast',
+      spacing: compact ? 12 : 16,
     );
   }
 

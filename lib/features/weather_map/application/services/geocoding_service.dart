@@ -4,7 +4,7 @@ import 'package:latlong2/latlong.dart';
 import '../../domain/entities/location.dart';
 import 'package:windify_v2/core/config/env_config.dart';
 
-/// Geocoding service using Mapbox Geocoding API
+/// Geocoding via Mapbox Geocoding API (token from [EnvConfig.mapboxAccessToken]).
 class GeocodingService {
   final Dio _dio;
   final String _accessToken;
@@ -13,22 +13,30 @@ class GeocodingService {
     : _dio = dio ?? Dio(),
       _accessToken = accessToken ?? EnvConfig.mapboxAccessToken ?? '';
 
-  /// Search for a place by query text
-  /// Returns list of matching locations
+  static const _forwardBase =
+      'https://api.mapbox.com/geocoding/v5/mapbox.places';
+
+  /// Search forward geocode; query is URL-encoded in the path per Mapbox API.
   Future<List<Location>> searchPlaces(String query) async {
+    final q = query.trim();
+    if (q.isEmpty) return [];
+
     if (_accessToken.isEmpty) {
-      throw Exception('Mapbox access token not configured');
+      throw StateError(
+        'Mapbox access token not configured. Add MAPBOX_ACCESS_TOKEN to .env',
+      );
     }
 
-    if (query.trim().isEmpty) return [];
+    final encoded = Uri.encodeComponent(q);
+    final pathUrl = '$_forwardBase/$encoded.json';
 
     try {
-      final response = await _dio.get(
-        'https://api.mapbox.com/geocoding/v5/mapbox.places/{query}.json',
-        queryParameters: {
+      final response = await _dio.get<Map<String, dynamic>>(
+        pathUrl,
+        queryParameters: <String, dynamic>{
           'access_token': _accessToken,
           'autocomplete': true,
-          'limit': 5,
+          'limit': 8,
           'language': 'en',
         },
         options: Options(
@@ -36,31 +44,69 @@ class GeocodingService {
         ),
       );
 
-      if (response.statusCode == 200 && response.data != null) {
-        final features = response.data['features'] as List?;
-        if (features == null) return [];
+      final code = response.statusCode;
+      final data = response.data;
 
-        return features.map((feature) {
-          final coords = feature['center'] as List;
-          final latitude = coords[1] as double;
-          final longitude = coords[0] as double;
-          final placeName = feature['place_name'] as String? ?? 'Unknown';
-          return Location(
-            coordinates: LatLng(latitude, longitude),
-            name: placeName.split(',')[0], // primary name
-            address: placeName,
-          );
-        }).toList();
+      if (code != 200 || data == null) {
+        final msg = data?['message']?.toString() ?? 'HTTP $code';
+        throw DioException(
+          requestOptions: response.requestOptions,
+          response: response,
+          type: DioExceptionType.badResponse,
+          message: msg,
+        );
       }
-      return [];
+
+      final features = data['features'];
+      if (features is! List) return [];
+
+      final out = <Location>[];
+      for (final raw in features) {
+        if (raw is! Map) continue;
+        final loc = _featureToLocation(Map<String, dynamic>.from(raw));
+        if (loc != null) out.add(loc);
+      }
+
+      return out;
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) {
-        throw Exception('Invalid Mapbox access token');
+        throw StateError('Invalid or expired Mapbox access token');
       }
-      throw Exception('Geocoding failed: ${e.message}');
+      throw StateError(
+        e.message ?? 'Geocoding request failed',
+      );
     } catch (e) {
-      return [];
+      if (e is StateError) rethrow;
+      throw StateError('Geocoding failed: $e');
     }
+  }
+
+  Location? _featureToLocation(Map<String, dynamic> feature) {
+    final center = feature['center'];
+    if (center is! List || center.length < 2) return null;
+
+    double? lon;
+    double? lat;
+    try {
+      lon = (center[0] as num).toDouble();
+      lat = (center[1] as num).toDouble();
+    } catch (_) {
+      return null;
+    }
+
+    final placeName = feature['place_name']?.toString();
+    final text = feature['text']?.toString();
+    final primary = (text != null && text.isNotEmpty)
+        ? text
+        : (placeName != null && placeName.isNotEmpty)
+            ? placeName.split(',').first.trim()
+            : 'Unknown';
+
+    return Location(
+      coordinates: LatLng(lat, lon),
+      name: primary,
+      address: placeName,
+    );
   }
 
   /// Reverse geocode coordinates to place name/address
@@ -73,27 +119,38 @@ class GeocodingService {
       );
     }
 
+    final path =
+        'https://api.mapbox.com/geocoding/v5/mapbox.places/${coordinates.longitude},${coordinates.latitude}.json';
+
     try {
-      final response = await _dio.get(
-        'https://api.mapbox.com/geocoding/v5/mapbox.places/${coordinates.longitude},${coordinates.latitude}.json',
-        queryParameters: {'access_token': _accessToken, 'limit': 1},
+      final response = await _dio.get<Map<String, dynamic>>(
+        path,
+        queryParameters: <String, dynamic>{
+          'access_token': _accessToken,
+          'limit': 1,
+        },
+        options: Options(
+          validateStatus: (status) => status != null && status < 500,
+        ),
       );
 
       if (response.statusCode == 200 && response.data != null) {
-        final features = response.data['features'] as List?;
-        if (features != null && features.isNotEmpty) {
-          final feature = features.first;
-          final placeName = feature['place_name'] as String? ?? 'Unknown';
-          return Location(
-            coordinates: coordinates,
-            name: placeName.split(',')[0],
-            address: placeName,
-          );
+        final features = response.data!['features'];
+        if (features is List && features.isNotEmpty) {
+          final first = features.first;
+          if (first is Map) {
+            final loc = _featureToLocation(Map<String, dynamic>.from(first));
+            if (loc != null) {
+              return Location(
+                coordinates: coordinates,
+                name: loc.name,
+                address: loc.address,
+              );
+            }
+          }
         }
       }
-    } catch (_) {
-      // ignore errors, return basic location
-    }
+    } catch (_) {}
 
     return Location(
       coordinates: coordinates,

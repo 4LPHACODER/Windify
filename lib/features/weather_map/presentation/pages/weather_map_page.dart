@@ -1,13 +1,22 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:windify_v2/core/widgets/app_brand_logo.dart';
 
 import '../../domain/entities/weather_layer.dart';
 import '../../domain/entities/location.dart';
 import '../controllers/weather_map_controller.dart';
+import '../map/weather_map_camera.dart';
+import '../map/weather_map_debug_log.dart';
 import '../states/weather_map_state.dart';
 import 'package:windify_v2/core/config/env_config.dart';
+import 'package:windify_v2/features/auth/presentation/controllers/auth_controller.dart';
+import 'package:windify_v2/features/saved_locations/domain/entities/saved_location.dart';
+import 'package:windify_v2/features/saved_locations/presentation/pages/saved_locations_page.dart';
+import 'package:windify_v2/features/saved_locations/presentation/providers/saved_locations_providers.dart';
 
 class WeatherMapPage extends ConsumerStatefulWidget {
   const WeatherMapPage({super.key});
@@ -29,21 +38,141 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
   }
 
   void _zoomIn() {
-    final camera = _mapController.camera;
-    _mapController.move(camera.center, camera.zoom + 1);
+    try {
+      final camera = _mapController.camera;
+      _mapController.move(camera.center, camera.zoom + 1);
+    } catch (_) {}
   }
 
   void _zoomOut() {
-    final camera = _mapController.camera;
-    _mapController.move(camera.center, camera.zoom - 1);
+    try {
+      final camera = _mapController.camera;
+      _mapController.move(camera.center, camera.zoom - 1);
+    } catch (_) {}
   }
 
   void _onMapTapped(LatLng point) {
+    double? zoomBefore;
+    try {
+      zoomBefore = _mapController.camera.zoom;
+    } catch (_) {}
+    WeatherMapDebugLog.mapTapped(point, zoomBefore);
     ref.read(weatherMapNotifierProvider.notifier).pinLocation(point);
+  }
+
+  void _maybeMoveMapCamera(WeatherMapState? prev, WeatherMapState next) {
+    if (!mounted || prev == null) return;
+    final nextSel = next.selectedLocation;
+    final prevSel = prev.selectedLocation;
+    if (nextSel != null &&
+        (prevSel == null ||
+            prevSel.latitude != nextSel.latitude ||
+            prevSel.longitude != nextSel.longitude)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        WeatherMapCamera.panToPreserveZoom(
+          _mapController,
+          nextSel,
+          fallbackZoom: _defaultZoom,
+          reason: 'selected_pin_moved',
+          onlyIfOutsideView: true,
+        );
+      });
+      return;
+    }
+    final nextUser = next.userLocation;
+    final prevUser = prev.userLocation;
+    if (next.selectedLocation == null &&
+        nextUser != null &&
+        (prevUser == null ||
+            prevUser.latitude != nextUser.latitude ||
+            prevUser.longitude != nextUser.longitude)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        WeatherMapCamera.panToPreserveZoom(
+          _mapController,
+          nextUser,
+          fallbackZoom: _defaultZoom,
+          reason: 'user_location_updated',
+          onlyIfOutsideView: true,
+        );
+      });
+    }
+  }
+
+  Future<void> _savePinnedLocation(BuildContext context) async {
+    final mapState = ref.read(weatherMapNotifierProvider);
+    final coords = mapState.selectedLocation;
+    if (coords == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Pin a location on the map first.')),
+        );
+      }
+      return;
+    }
+    final user = ref.read(authControllerProvider).user;
+    if (user == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Sign in to save locations.')),
+        );
+      }
+      return;
+    }
+    final name = mapState.selectedLocationLabel ?? 'Saved place';
+    try {
+      await ref.read(savedLocationsRepositoryProvider).save(
+            userId: user.id,
+            locationName: name,
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+          );
+      ref.invalidate(savedLocationsListProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location saved')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not save: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _openSavedLocations(BuildContext context) async {
+    final result = await Navigator.of(context).push<SavedLocation>(
+      MaterialPageRoute(
+        builder: (_) => const SavedLocationsPage(),
+      ),
+    );
+    if (!mounted || result == null) return;
+    await ref.read(weatherMapNotifierProvider.notifier).visitSavedLocation(
+          LatLng(result.latitude, result.longitude),
+          result.locationName,
+        );
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      WeatherMapCamera.panToPreserveZoom(
+        _mapController,
+        LatLng(result.latitude, result.longitude),
+        fallbackZoom: _defaultZoom,
+        reason: 'visit_saved_location',
+        onlyIfOutsideView: false,
+      );
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<WeatherMapState>(
+      weatherMapNotifierProvider,
+      _maybeMoveMapCamera,
+    );
     final state = ref.watch(weatherMapNotifierProvider);
     final notifier = ref.read(weatherMapNotifierProvider.notifier);
 
@@ -75,10 +204,11 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
                 color: Colors.white.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(
-                Icons.waves,
-                size: 20,
-                color: _getLayerColor(state.selectedLayer),
+              child: const AppBrandLogo(
+                logoSize: 20,
+                borderRadius: 6,
+                showAppName: false,
+                showShadow: false,
               ),
             ),
             const SizedBox(width: 12),
@@ -95,7 +225,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
                   ),
                 ),
                 Text(
-                  state.locationName ?? state.selectedLayer.displayName,
+                  state.activeLocationLabel,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Colors.white.withOpacity(0.75),
                     fontSize: 11,
@@ -108,10 +238,35 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Search',
             icon: const Icon(Icons.search, color: Colors.white, size: 22),
             onPressed: () => _showSearchDialog(context, notifier),
           ),
           IconButton(
+            tooltip: state.selectedLocation != null
+                ? 'Save this location'
+                : 'Pin a location on the map to save',
+            icon: Icon(
+              state.selectedLocation != null
+                  ? Icons.bookmark_add
+                  : Icons.bookmark_border,
+              color: Colors.white,
+              size: 22,
+            ),
+            onPressed: state.selectedLocation != null
+                ? () => unawaited(_savePinnedLocation(context))
+                : () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Pin a location on the map (tap the map), then save.',
+                        ),
+                      ),
+                    );
+                  },
+          ),
+          IconButton(
+            tooltip: 'Settings',
             icon: const Icon(Icons.settings, color: Colors.white, size: 22),
             onPressed: () {},
           ),
@@ -141,15 +296,31 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
               ),
             ),
           ),
-          // Content
+          // Radar tint (replaces a second TileLayer inside FlutterMap — fewer
+          // tile viewports / layout issues with flutter_map on web; see 6.txt).
+          if (state.selectedLayer == WeatherLayer.radar)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: _getLayerColor(WeatherLayer.radar).withOpacity(0.09),
+                  ),
+                ),
+              ),
+            ),
+          // Content — avoid Column + Spacer in a non-positioned Stack child
+          // (flex inside loose stack constraints contributed to layout asserts).
           SafeArea(
             bottom: false,
-            child: Column(
-              children: [
-                const SizedBox(height: 16),
-                _ExpandableWeatherCard(state: state, notifier: notifier),
-                const Spacer(),
-              ],
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 16),
+                  _ExpandableWeatherCard(state: state, notifier: notifier),
+                ],
+              ),
             ),
           ),
           // Live indicator
@@ -164,27 +335,127 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             bottom: MediaQuery.of(context).padding.bottom + 140,
             child: _buildMapControls(notifier),
           ),
-          // Current location button (top-right-ish)
-          Positioned(
-            right: 16,
-            top: kToolbarHeight + 16,
-            child: _CurrentLocationButton(
-              onPressed: () => notifier.fetchCurrentLocation(),
-            ),
-          ),
-          // Loading overlay
-          if (state.isLoading)
-            Container(
-              color: Colors.black.withOpacity(0.4),
-              child: const Center(
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  strokeWidth: 3,
+          if (state.isRequestingLocation)
+            Positioned(
+              left: 16,
+              right: 16,
+              top: MediaQuery.of(context).padding.top + kToolbarHeight + 8,
+              child: Material(
+                elevation: 6,
+                borderRadius: BorderRadius.circular(14),
+                color: Colors.white.withOpacity(0.95),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      const SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Getting your location...',
+                          style: TextStyle(
+                            color: Colors.grey.shade800,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          // Error overlay
-          if (state.error != null) _buildErrorOverlay(context, state, notifier),
+          if (state.isLoadingWeather)
+            Positioned(
+              left: 24,
+              right: 24,
+              top: MediaQuery.of(context).padding.top + kToolbarHeight + 56,
+              child: Material(
+                elevation: 4,
+                borderRadius: BorderRadius.circular(12),
+                color: Colors.black.withOpacity(0.75),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Loading weather...',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          if (state.error != null)
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: MediaQuery.of(context).padding.bottom + 108,
+              child: Material(
+                elevation: 8,
+                borderRadius: BorderRadius.circular(14),
+                color: Colors.orange.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: Colors.orange.shade800,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          state.error!,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade900,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Retry',
+                        icon: const Icon(Icons.refresh),
+                        onPressed: () => ref
+                            .read(weatherMapNotifierProvider.notifier)
+                            .reloadWeatherOnly(),
+                      ),
+                      IconButton(
+                        tooltip: 'Dismiss',
+                        icon: const Icon(Icons.close),
+                        onPressed: () => ref
+                            .read(weatherMapNotifierProvider.notifier)
+                            .dismissError(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
       bottomNavigationBar: _buildBottomNav(context, state, notifier),
@@ -205,7 +476,8 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     return FlutterMap(
       mapController: _mapController,
       options: MapOptions(
-        initialCenter: state.selectedLocation,
+        // Stable initial values; camera is driven by [MapController], not by rebuilding options.
+        initialCenter: WeatherMapState.fallbackCoordinates,
         initialZoom: _defaultZoom,
         minZoom: 2,
         maxZoom: 18,
@@ -221,63 +493,46 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
           additionalOptions: {'accessToken': mapboxToken},
           userAgentPackageName: 'com.windify.app',
         ),
-        // Weather overlay - subtle colored tint
-        if (state.selectedLayer == WeatherLayer.radar)
-          Opacity(
-            opacity: 0.12,
-            child: TileLayer(
-              urlTemplate:
-                  'https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/{z}/{x}/{y}?access_token={accessToken}',
-              additionalOptions: {'accessToken': mapboxToken},
-              userAgentPackageName: 'com.windify.app',
-            ),
-          ),
-        // Current location marker
-        if (state.locationName == 'Current Location')
-          MarkerLayer(
-            markers: [
+        MarkerLayer(
+          markers: [
+            if (state.userLocation != null)
               Marker(
-                width: 24,
-                height: 24,
-                point: state.selectedLocation,
+                width: 30,
+                height: 30,
+                point: state.userLocation!,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.9),
+                    color: Colors.blue.withOpacity(0.95),
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.white, width: 2),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.blue.withOpacity(0.5),
+                        color: Colors.blue.withOpacity(0.45),
                         blurRadius: 8,
                         spreadRadius: 2,
                       ),
                     ],
                   ),
                   child: const Icon(
-                    Icons.my_location,
-                    size: 14,
+                    Icons.person_pin_circle,
+                    size: 16,
                     color: Colors.white,
                   ),
                 ),
               ),
-            ],
-          )
-        // Pinned location marker
-        else if (state.locationName == 'Pinned Location')
-          MarkerLayer(
-            markers: [
+            if (state.selectedLocation != null)
               Marker(
-                width: 28,
-                height: 40,
-                point: state.selectedLocation,
-                child: const Icon(
+                width: 36,
+                height: 44,
+                point: state.selectedLocation!,
+                child: Icon(
                   Icons.location_on,
-                  color: Colors.red,
-                  size: 40,
+                  color: Colors.amber.shade700,
+                  size: 44,
                 ),
               ),
-            ],
-          ),
+          ],
+        ),
       ],
     );
   }
@@ -528,7 +783,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             child: _BottomNavAction(
               icon: Icons.star_border,
               label: 'Saved',
-              onPressed: () {},
+              onPressed: () => unawaited(_openSavedLocations(context)),
             ),
           ),
           const SizedBox(width: 12),
@@ -553,78 +808,19 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
   }
 
   void _showSearchDialog(BuildContext context, WeatherMapNotifier notifier) {
-    showDialog(
-      context: context,
-      builder: (ctx) => _SearchDialog(notifier: notifier),
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (ctx) => _LocationSearchPage(notifier: notifier),
+      ),
     );
   }
 
   void _showAIRecommendationSheet(BuildContext context, WeatherMapState state) {
-    if (state.currentMap == null) return;
-
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _AIRecommendationSheet(state: state),
-    );
-  }
-
-  Widget _buildErrorOverlay(
-    BuildContext context,
-    WeatherMapState state,
-    WeatherMapNotifier notifier,
-  ) {
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.all(24),
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.95),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.2),
-              blurRadius: 20,
-              offset: const Offset(0, 10),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, color: Colors.red, size: 40),
-            const SizedBox(height: 16),
-            Text(
-              'Failed to load data',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              state.error!,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-            ),
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: () => notifier.refresh(),
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('Retry'),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -698,7 +894,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              state.locationName ?? 'Select a location',
+                              state.activeLocationLabel,
                               style: TextStyle(
                                 fontSize: 13,
                                 color: Colors.grey.shade600,
@@ -723,27 +919,16 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
                 ),
               ),
             ),
-            // Expandable body with smooth animation
-            AnimatedSize(
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeInOut,
-              alignment: Alignment.topCenter,
-              child: state.isInfoExpanded
-                  ? Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Divider(height: 1, thickness: 1),
-                        const SizedBox(height: 16),
-                        _buildDataCards(state),
-                        const SizedBox(height: 12),
-                        Container(height: 1, color: Colors.grey.shade200),
-                        const SizedBox(height: 12),
-                        _buildMetaInfo(state),
-                        const SizedBox(height: 8),
-                      ],
-                    )
-                  : const SizedBox.shrink(),
-            ),
+            if (state.isInfoExpanded) ...[
+              const Divider(height: 1, thickness: 1),
+              const SizedBox(height: 16),
+              _buildDataCards(state),
+              const SizedBox(height: 12),
+              Container(height: 1, color: Colors.grey.shade200),
+              const SizedBox(height: 12),
+              _buildMetaInfo(state),
+              const SizedBox(height: 8),
+            ],
           ],
         ),
       ),
@@ -863,6 +1048,7 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
   }
 
   Widget _buildMetaInfo(WeatherMapState state) {
+    final updatedAt = state.currentMap?.updatedAt;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
@@ -871,7 +1057,9 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
             child: _InfoField(
               icon: Icons.update,
               label: 'Last Update',
-              value: _formatTime(state.currentMap!.updatedAt),
+              value: updatedAt != null
+                  ? _formatTime(updatedAt)
+                  : 'Waiting for data…',
             ),
           ),
           const SizedBox(width: 16),
@@ -1002,45 +1190,44 @@ class _DataCard extends StatelessWidget {
       );
     }
 
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.06),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withOpacity(0.15), width: 1),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 18, color: color),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      color: Colors.grey.shade600,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    overflow: TextOverflow.ellipsis,
+    // Callers wrap in [Expanded]; do not nest another [Expanded] here (ParentDataWidget error).
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withOpacity(0.15), width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
                   ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF1A1A2E),
               ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF1A1A2E),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1172,154 +1359,256 @@ class _MapControlButton extends StatelessWidget {
   }
 }
 
-class _CurrentLocationButton extends StatelessWidget {
-  final VoidCallback onPressed;
-
-  const _CurrentLocationButton({required this.onPressed});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      elevation: 4,
-      shadowColor: Colors.black.withOpacity(0.2),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          width: 40,
-          height: 40,
-          padding: const EdgeInsets.all(8),
-          child: const Icon(
-            Icons.gps_fixed,
-            size: 20,
-            color: Color(0xFF0D1B2A),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SearchDialog extends StatefulWidget {
+/// Full-screen route so [Scaffold] gives a bounded body; avoids
+/// `showModalBottomSheet` + viewport intrinsic layout crashes (see 6.txt ~952–998).
+class _LocationSearchPage extends StatefulWidget {
   final WeatherMapNotifier notifier;
 
-  const _SearchDialog({required this.notifier});
+  const _LocationSearchPage({required this.notifier});
 
   @override
-  State<_SearchDialog> createState() => _SearchDialogState();
+  State<_LocationSearchPage> createState() => _LocationSearchPageState();
 }
 
-class _SearchDialogState extends State<_SearchDialog> {
+class _LocationSearchPageState extends State<_LocationSearchPage> {
   final _controller = TextEditingController();
-  bool _isSearching = false;
+  bool _loading = false;
+  String? _error;
   List<Location> _results = [];
+  Timer? _debounce;
 
-  Future<void> _search(String query) async {
-    if (query.trim().isEmpty) {
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _scheduleSearch(String raw) {
+    _debounce?.cancel();
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) {
       setState(() {
         _results = [];
-        _isSearching = false;
+        _error = null;
+        _loading = false;
       });
       return;
     }
+    _debounce = Timer(
+      const Duration(milliseconds: 400),
+      () => _runSearch(trimmed),
+    );
+  }
 
-    setState(() => _isSearching = true);
-
+  Future<void> _runSearch(String q) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      final results = await widget.notifier.searchPlaces(query);
+      final list = await widget.notifier.searchPlaces(q);
+      if (!mounted) return;
       setState(() {
-        _results = results;
-        _isSearching = false;
+        _results = list;
+        _loading = false;
+        _error = null;
       });
     } catch (e) {
+      if (!mounted) return;
+      final msg = e.toString()
+          .replaceFirst('StateError: ', '')
+          .replaceFirst('Exception: ', '');
       setState(() {
-        _isSearching = false;
+        _results = [];
+        _loading = false;
+        _error = msg;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Search error: $e')));
-      }
     }
+  }
+
+  Widget _resultsBody(ThemeData theme) {
+    final q = _controller.text.trim();
+    if (q.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'Type a city, place, or address to search.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+          ),
+        ),
+      );
+    }
+    if (_loading && _results.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 12),
+            Text(
+              'Searching…',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+            ),
+          ],
+        ),
+      );
+    }
+    if (!_loading && _results.isEmpty && _error == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'No locations found. Try different words.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey.shade700, fontSize: 14),
+          ),
+        ),
+      );
+    }
+    final locs = _results.take(24).toList();
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < locs.length; i++) ...[
+            if (i > 0) Divider(height: 1, color: Colors.grey.shade200),
+            ListTile(
+              leading: Icon(
+                Icons.location_on_outlined,
+                color: theme.colorScheme.primary,
+              ),
+              title: Text(
+                locs[i].name ?? 'Place',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: (locs[i].address != null && locs[i].address!.isNotEmpty)
+                  ? Text(
+                      locs[i].address!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    )
+                  : null,
+              onTap: () {
+                Navigator.of(context).pop();
+                widget.notifier.selectSearchResult(locs[i]);
+              },
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: const Text(
-        'Search Location',
-        style: TextStyle(fontWeight: FontWeight.w600),
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Search location'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
       ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _controller,
-            autofocus: true,
-            decoration: InputDecoration(
-              hintText: 'Enter city, place, or coordinates',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: _isSearching
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : (_controller.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _controller.clear();
-                              _search('');
-                            },
-                          )
-                        : null),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              filled: true,
-            ),
-            onChanged: _search,
-            onSubmitted: _search,
-          ),
-          const SizedBox(height: 12),
-          if (_results.isNotEmpty)
-            Container(
-              constraints: const BoxConstraints(maxHeight: 200),
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: _results.length,
-                itemBuilder: (ctx, i) {
-                  final loc = _results[i];
-                  return ListTile(
-                    leading: const Icon(Icons.location_on, color: Colors.grey),
-                    title: Text(loc.name ?? 'Unknown'),
-                    subtitle: loc.address != null
-                        ? Text(
-                            loc.address!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          )
-                        : null,
-                    onTap: () {
-                      Navigator.of(context).pop();
-                      widget.notifier.selectSearchResult(loc);
-                    },
-                  );
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: TextField(
+                controller: _controller,
+                autofocus: true,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: 'City, place, or address',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: _loading
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : (_controller.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _controller.clear();
+                                _debounce?.cancel();
+                                _scheduleSearch('');
+                                setState(() {});
+                              },
+                            )
+                          : null),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  filled: true,
+                  fillColor: theme.colorScheme.surfaceContainerHighest
+                      .withOpacity(0.4),
+                ),
+                onChanged: (v) {
+                  setState(() {});
+                  _scheduleSearch(v);
+                },
+                onSubmitted: (v) {
+                  _debounce?.cancel();
+                  final t = v.trim();
+                  if (t.isEmpty) {
+                    _scheduleSearch('');
+                  } else {
+                    _runSearch(t);
+                  }
                 },
               ),
             ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                child: Material(
+                  color: theme.colorScheme.errorContainer.withOpacity(0.35),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          color: theme.colorScheme.error,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            _error!,
+                            style: TextStyle(
+                              color: theme.colorScheme.onErrorContainer,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            Expanded(child: _resultsBody(theme)),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
@@ -1383,7 +1672,7 @@ class _AIRecommendationSheet extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Based on current weather at ${state.locationName ?? "your location"}',
+            'Based on current weather at ${state.activeLocationLabel}',
             style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 20),

@@ -55,16 +55,21 @@ class GeolocationService {
     );
   }
 
+  /// Latest permission from the platform (no prompt).
+  Future<LocationPermission> checkPermission() async {
+    return Geolocator.checkPermission();
+  }
+
   /// Check permission status
   Future<bool> hasPermission() async {
-    final permission = await Geolocator.checkPermission();
-    return permission != LocationPermission.denied &&
-        permission != LocationPermission.deniedForever;
+    final permission = await checkPermission();
+    return permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse;
   }
 
   /// Request permission
   Future<LocationPermission> requestPermission() async {
-    return await Geolocator.requestPermission();
+    return Geolocator.requestPermission();
   }
 
   /// Check if location service enabled
