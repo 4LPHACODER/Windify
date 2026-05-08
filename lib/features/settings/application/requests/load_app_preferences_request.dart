@@ -1,0 +1,3 @@
+class LoadAppPreferencesRequest {
+  const LoadAppPreferencesRequest();
+}

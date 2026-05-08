@@ -1,4 +1,5 @@
 import '../../domain/entities/app_user.dart';
+import '../../domain/entities/auth_session_info.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../datasources/auth_remote_datasource.dart';
 import '../datasources/auth_remote_datasource_impl.dart';
@@ -12,6 +13,21 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<AppUser?> getCurrentUser() async {
     return await datasource.getCurrentUser();
+  }
+
+  @override
+  Future<AuthSessionInfo?> getCurrentSession() async {
+    return await datasource.getCurrentSession();
+  }
+
+  @override
+  Future<String?> getAccessToken() async {
+    return await datasource.getAccessToken();
+  }
+
+  @override
+  Future<AuthSessionInfo?> refreshSession() async {
+    return await datasource.refreshSession();
   }
 
   @override

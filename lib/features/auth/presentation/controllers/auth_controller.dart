@@ -1,34 +1,31 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../domain/usecases/get_current_user_usecase.dart';
-import '../../domain/usecases/sign_in_usecase.dart';
-import '../../domain/usecases/sign_in_with_google_usecase.dart';
-import '../../domain/usecases/sign_out_usecase.dart';
-import '../../domain/usecases/sign_up_usecase.dart';
-import '../providers/auth_providers.dart';
+import '../../application/providers/auth_providers.dart';
+import '../../application/requests/get_access_token_request.dart';
+import '../../application/requests/get_current_user_request.dart';
+import '../../application/requests/get_current_session_request.dart';
+import '../../application/requests/refresh_session_request.dart';
+import '../../application/requests/sign_in_request.dart';
+import '../../application/requests/sign_in_with_google_request.dart';
+import '../../application/requests/sign_out_request.dart';
+import '../../application/requests/sign_up_request.dart';
+import '../../application/services/auth_flow_service.dart';
+import '../../domain/entities/auth_session_info.dart';
 import '../states/auth_state.dart';
 
 class AuthController extends StateNotifier<AuthState> {
-  final SignInUsecase _signInUsecase;
-  final SignUpUsecase _signUpUsecase;
-  final SignInWithGoogleUsecase _signInWithGoogleUsecase;
-  final SignOutUsecase _signOutUsecase;
-  final GetCurrentUserUsecase _getCurrentUserUsecase;
+  final AuthFlowService _authFlowService;
 
-  AuthController._(
-    this._signInUsecase,
-    this._signUpUsecase,
-    this._signInWithGoogleUsecase,
-    this._signOutUsecase,
-    this._getCurrentUserUsecase,
-  ) : super(const AuthState()) {
+  AuthController._(this._authFlowService) : super(const AuthState()) {
     checkAuthStatus();
   }
 
   Future<void> checkAuthStatus() async {
     state = state.copyWith(isLoading: true);
     try {
-      final user = await _getCurrentUserUsecase();
+      final user = await _authFlowService.getCurrentUser(
+        const GetCurrentUserRequest(),
+      );
       state = state.copyWith(isLoading: false, user: user);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
@@ -38,7 +35,9 @@ class AuthController extends StateNotifier<AuthState> {
   Future<void> signIn(String email, String password) async {
     state = state.copyWith(isLoading: true, error: null);
     try {
-      final user = await _signInUsecase(email, password);
+      final user = await _authFlowService.signIn(
+        SignInRequest(email: email, password: password),
+      );
       state = state.copyWith(isLoading: false, user: user);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
@@ -48,7 +47,9 @@ class AuthController extends StateNotifier<AuthState> {
   Future<void> signUp(String email, String password) async {
     state = state.copyWith(isLoading: true, error: null);
     try {
-      final user = await _signUpUsecase(email, password);
+      final user = await _authFlowService.signUp(
+        SignUpRequest(email: email, password: password),
+      );
       state = state.copyWith(isLoading: false, user: user);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
@@ -58,7 +59,9 @@ class AuthController extends StateNotifier<AuthState> {
   Future<void> signInWithGoogle() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
-      final user = await _signInWithGoogleUsecase();
+      final user = await _authFlowService.signInWithGoogle(
+        const SignInWithGoogleRequest(),
+      );
       state = state.copyWith(isLoading: false, user: user);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
@@ -68,28 +71,38 @@ class AuthController extends StateNotifier<AuthState> {
   Future<void> signOut() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
-      await _signOutUsecase();
+      await _authFlowService.signOut(const SignOutRequest());
       state = state.copyWith(isLoading: false, user: null);
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
+
+  /// Debug/testing helper for manual Postman workflows.
+  /// Do not auto-display this token in normal UI flows.
+  Future<String?> getAccessTokenForDebug({bool forceRefresh = false}) async {
+    return await _authFlowService.getAccessToken(
+      GetAccessTokenRequest(forceRefresh: forceRefresh),
+    );
+  }
+
+  /// Returns session metadata for diagnostics without altering login UI behavior.
+  Future<AuthSessionInfo?> getCurrentSessionForDebug({
+    bool forceRefresh = false,
+  }) async {
+    return await _authFlowService.getCurrentSession(
+      GetCurrentSessionRequest(forceRefresh: forceRefresh),
+    );
+  }
+
+  Future<AuthSessionInfo?> refreshSessionForDebug() async {
+    return await _authFlowService.refreshSession(const RefreshSessionRequest());
+  }
 }
 
 final authControllerProvider = StateNotifierProvider<AuthController, AuthState>(
   (ref) {
-    final signInUsecase = ref.watch(signInUsecaseProvider);
-    final signUpUsecase = ref.watch(signUpUsecaseProvider);
-    final signInWithGoogleUsecase = ref.watch(signInWithGoogleUsecaseProvider);
-    final signOutUsecase = ref.watch(signOutUsecaseProvider);
-    final getCurrentUserUsecase = ref.watch(getCurrentUserUsecaseProvider);
-
-    return AuthController._(
-      signInUsecase,
-      signUpUsecase,
-      signInWithGoogleUsecase,
-      signOutUsecase,
-      getCurrentUserUsecase,
-    );
+    final authFlowService = ref.watch(authFlowServiceProvider);
+    return AuthController._(authFlowService);
   },
 );

@@ -1,0 +1,3 @@
+class ListSavedLocationsRequest {
+  const ListSavedLocationsRequest();
+}

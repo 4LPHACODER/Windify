@@ -1,0 +1,3 @@
+class RefreshSessionRequest {
+  const RefreshSessionRequest();
+}

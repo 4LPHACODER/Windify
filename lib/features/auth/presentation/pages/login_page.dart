@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:windify_v2/core/widgets/app_brand_logo.dart';
@@ -30,7 +31,17 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   }
 
   Future<void> _signIn() async {
-    if (!_formKey.currentState!.validate()) return;
+    final isValid = _formKey.currentState!.validate();
+    // #region agent log
+    _debugLog(
+      runId: 'run-pre-fix',
+      hypothesisId: 'H4',
+      location: 'login_page.dart:_signIn',
+      message: 'SignIn validation result',
+      data: {'isValid': isValid},
+    );
+    // #endregion
+    if (!isValid) return;
     final controller = ref.read(authControllerProvider.notifier);
     await controller.signIn(
       _emailController.text.trim(),
@@ -212,7 +223,30 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         ),
         GestureDetector(
           onTap: () {
-            if (!_formKey.currentState!.validate()) return;
+            // #region agent log
+            _debugLog(
+              runId: 'run-post-fix',
+              hypothesisId: 'H2',
+              location: 'login_page.dart:_buildSignUpLink:onTap',
+              message: 'SignUp tap invoked',
+              data: {
+                'emailLength': _emailController.text.trim().length,
+                'passwordLength': _passwordController.text.trim().length,
+              },
+            );
+            // #endregion
+            // #region agent log
+            _debugLog(
+              runId: 'run-post-fix',
+              hypothesisId: 'H3',
+              location: 'login_page.dart:_buildSignUpLink:onTap',
+              message: 'Attempting Navigator.push to SignupPage',
+              data: const {
+                'route': 'SignupPage',
+                'validationGateRemoved': true,
+              },
+            );
+            // #endregion
             Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const SignupPage()),
@@ -228,5 +262,38 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         ),
       ],
     );
+  }
+
+  Future<void> _debugLog({
+    required String runId,
+    required String hypothesisId,
+    required String location,
+    required String message,
+    required Map<String, Object?> data,
+  }) async {
+    final payload = <String, Object?>{
+      'sessionId': '741a77',
+      'runId': runId,
+      'hypothesisId': hypothesisId,
+      'location': location,
+      'message': message,
+      'data': data,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    };
+    // #region agent log
+    debugPrint('AGENT_DEBUG_741a77 ${payload.toString()}');
+    // #endregion
+    try {
+      await Dio().post(
+        'http://127.0.0.1:7881/ingest/dd55a01c-8673-4314-ab47-4b7bcf85eab6',
+        data: payload,
+        options: Options(
+          headers: <String, String>{
+            'Content-Type': 'application/json',
+            'X-Debug-Session-Id': '741a77',
+          },
+        ),
+      );
+    } catch (_) {}
   }
 }

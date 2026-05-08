@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../../core/config/env_config.dart';
 import '../../domain/entities/app_user.dart';
+import '../../domain/entities/auth_session_info.dart';
 import 'auth_remote_datasource.dart';
 
 class AuthRemoteDatasourceImpl implements AuthRemoteDatasource {
@@ -43,6 +44,32 @@ class AuthRemoteDatasourceImpl implements AuthRemoteDatasource {
     final session = _supabase.auth.currentSession;
     if (session == null) return null;
     return AppUser.fromSupabase(session.user.toJson());
+  }
+
+  @override
+  Future<AuthSessionInfo?> getCurrentSession() async {
+    final session = _supabase.auth.currentSession;
+    if (session == null) return null;
+    return _mapSessionInfo(session);
+  }
+
+  @override
+  Future<String?> getAccessToken() async {
+    return _supabase.auth.currentSession?.accessToken;
+  }
+
+  @override
+  Future<AuthSessionInfo?> refreshSession() async {
+    try {
+      final authResponse = await _supabase.auth.refreshSession();
+      final session = authResponse.session ?? _supabase.auth.currentSession;
+      if (session == null) return null;
+      return _mapSessionInfo(session);
+    } on AuthException catch (e) {
+      throw Exception('Session refresh failed: ${e.message}');
+    } catch (e) {
+      throw Exception('Session refresh failed: $e');
+    }
   }
 
   @override
@@ -131,5 +158,19 @@ class AuthRemoteDatasourceImpl implements AuthRemoteDatasource {
     } catch (e) {
       developer.log('Supabase sign out warning: $e', name: 'Auth');
     }
+  }
+
+  AuthSessionInfo _mapSessionInfo(Session session) {
+    final expiresAt = session.expiresAt;
+    final expiry = expiresAt == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(expiresAt * 1000);
+    return AuthSessionInfo(
+      accessToken: session.accessToken,
+      refreshToken: session.refreshToken,
+      tokenType: session.tokenType,
+      expiresAt: expiry,
+      userId: session.user.id,
+    );
   }
 }

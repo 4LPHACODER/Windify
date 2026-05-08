@@ -7,7 +7,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:windify_v2/core/widgets/app_brand_logo.dart';
 import 'package:windify_v2/features/settings/domain/entities/app_preferences.dart';
 import 'package:windify_v2/features/settings/presentation/pages/settings_page.dart';
-import 'package:windify_v2/features/settings/presentation/providers/app_preferences_provider.dart';
+import 'package:windify_v2/features/settings/application/providers/app_preferences_providers.dart';
 
 import '../../domain/entities/weather_layer.dart';
 import '../../domain/entities/location.dart';
@@ -18,9 +18,10 @@ import '../map/weather_map_debug_log.dart';
 import '../states/weather_map_state.dart';
 import 'package:windify_v2/core/config/env_config.dart';
 import 'package:windify_v2/features/auth/presentation/controllers/auth_controller.dart';
+import 'package:windify_v2/features/saved_locations/application/requests/save_saved_location_request.dart';
+import 'package:windify_v2/features/saved_locations/application/providers/saved_locations_providers.dart';
 import 'package:windify_v2/features/saved_locations/domain/entities/saved_location.dart';
 import 'package:windify_v2/features/saved_locations/presentation/pages/saved_locations_page.dart';
-import 'package:windify_v2/features/saved_locations/presentation/providers/saved_locations_providers.dart';
 
 class WeatherMapPage extends ConsumerStatefulWidget {
   const WeatherMapPage({super.key});
@@ -128,11 +129,13 @@ class _WeatherMapPageState extends ConsumerState<WeatherMapPage> {
     }
     final name = mapState.selectedLocationLabel ?? 'Saved place';
     try {
-      await ref.read(savedLocationsRepositoryProvider).save(
-            userId: user.id,
-            locationName: name,
-            latitude: coords.latitude,
-            longitude: coords.longitude,
+      await ref.read(savedLocationsServiceProvider).save(
+            SaveSavedLocationRequest(
+              userId: user.id,
+              locationName: name,
+              latitude: coords.latitude,
+              longitude: coords.longitude,
+            ),
           );
       ref.invalidate(savedLocationsListProvider);
       if (context.mounted) {

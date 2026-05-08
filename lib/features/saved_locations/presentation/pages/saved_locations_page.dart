@@ -3,8 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:windify_v2/features/auth/presentation/controllers/auth_controller.dart';
 
+import '../../application/requests/delete_saved_location_request.dart';
+import '../../application/providers/saved_locations_providers.dart';
 import '../../domain/entities/saved_location.dart';
-import '../providers/saved_locations_providers.dart';
 
 class SavedLocationsPage extends ConsumerWidget {
   const SavedLocationsPage({super.key});
@@ -60,9 +61,8 @@ class SavedLocationsPage extends ConsumerWidget {
     if (confirmed != true || !context.mounted) return;
 
     try {
-      await ref.read(savedLocationsRepositoryProvider).delete(
-            id: id,
-            userId: user.id,
+      await ref.read(savedLocationsServiceProvider).delete(
+            DeleteSavedLocationRequest(id: id, userId: user.id),
           );
       ref.invalidate(savedLocationsListProvider);
       if (context.mounted) {
